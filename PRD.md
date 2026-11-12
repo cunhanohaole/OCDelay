@@ -14,6 +14,14 @@ A clean digital delay for people who want precise control over their repeats (th
 - VST3 only, macOS and Windows.
 - Native JUCE UI: one rotary knob per float parameter, a toggle for Ping-Pong, value readouts with units.
 
+## UI Layout
+- Fixed window size, not resizable in v0.1: [NEED: confirm size — start at 640 × 400 px].
+- Lay out every component relative to the editor bounds (no hard-coded pixel positions), so resizing can be added later without rewriting the layout.
+- Controls sit in one strip along the bottom of the window: Delay Time, Feedback, Mix, Ping-Pong.
+- The area above the strip is reserved for the future curve editor and stays empty in v0.1.
+- All styling goes through a single custom `juce::LookAndFeel_V4` subclass, visually identical to JUCE's default for now.
+- A full visual design pass happens after v0.1 ships and before the curve-editor work starts.
+
 ## Behaviour
 - Supported bus layouts: mono → mono, mono → stereo, stereo → stereo.
 - Stereo mode (Ping-Pong off): L and R are delayed independently with the same settings.
