@@ -23,15 +23,25 @@ public:
 
 private:
     void layoutControlStrip (juce::Rectangle<int> strip);
+    void layoutSwitches (juce::Rectangle<int> column);
+    void showDivisionKnob (bool shouldShowDivision);
 
     // Declared first so it outlives every component that uses it
     OCDelayLookAndFeel lookAndFeel;
 
+    // Delay Time (ms) and Division share one slot; Sync decides which is shown
     ParameterKnob delayTimeKnob;
+    ParameterKnob divisionKnob;
     ParameterKnob feedbackKnob;
     ParameterKnob mixKnob;
+
+    juce::ToggleButton syncButton { "Sync" };
     juce::ToggleButton pingPongButton { "Ping-Pong" };
+    juce::AudioProcessorValueTreeState::ButtonAttachment syncAttachment;
     juce::AudioProcessorValueTreeState::ButtonAttachment pingPongAttachment;
+
+    // Follows Sync from any source (button, automation, preset) on the message thread
+    juce::ParameterAttachment syncVisibilityAttachment;
 
 #if JUCE_DEBUG
     void setUpInspector();

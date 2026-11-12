@@ -16,6 +16,6 @@ void ParameterKnob::resized()
 {
     auto area = getLocalBounds();
     label.setBounds (area.removeFromTop (proportionOfHeight (0.18f)));
-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, proportionOfWidth (0.8f), proportionOfHeight (0.16f));
+    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, proportionOfWidth (0.6f), proportionOfHeight (0.18f));
     slider.setBounds (area);
 }

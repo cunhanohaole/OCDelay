@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "Parameters.h"
+#include "TempoSync.h"
 #include "PluginEditor.h"
 
 namespace
@@ -23,8 +24,11 @@ PluginProcessor::PluginProcessor()
     feedbackPercent = apvts.getRawParameterValue (ParamIDs::feedback.getParamID());
     mixPercent = apvts.getRawParameterValue (ParamIDs::mix.getParamID());
     pingPong = apvts.getRawParameterValue (ParamIDs::pingPong.getParamID());
+    sync = apvts.getRawParameterValue (ParamIDs::sync.getParamID());
+    division = apvts.getRawParameterValue (ParamIDs::division.getParamID());
 
-    jassert (delayTimeMs != nullptr && feedbackPercent != nullptr && mixPercent != nullptr && pingPong != nullptr);
+    jassert (delayTimeMs != nullptr && feedbackPercent != nullptr && mixPercent != nullptr
+             && pingPong != nullptr && sync != nullptr && division != nullptr);
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -53,7 +57,7 @@ bool PluginProcessor::isMidiEffect() const
 // Time until the repeats have decayed by 60 dB at the current settings
 double PluginProcessor::getTailLengthSeconds() const
 {
-    const auto delaySeconds = (double) delayTimeMs->load() / 1000.0;
+    const auto delaySeconds = juce::jmin (kMaxDelaySeconds, (double) effectiveDelayMs.load() / 1000.0);
     const auto feedbackGain = juce::jlimit (0.0, (double) DelayEngine::kMaxFeedback, (double) feedbackPercent->load() / 100.0);
 
     if (feedbackGain <= 0.0)
@@ -129,10 +133,30 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
 void PluginProcessor::pushParametersToEngine()
 {
-    delayEngine.setDelayTimeMs (delayTimeMs->load());
+    const auto delayMs = computeDelayTimeMs();
+    effectiveDelayMs.store (delayMs);
+    delayEngine.setDelayTimeMs (delayMs);
     delayEngine.setFeedback (feedbackPercent->load() / 100.0f);
     delayEngine.setMix (mixPercent->load() / 100.0f);
     delayEngine.setPingPong (pingPong->load() >= 0.5f);
+}
+
+// Sync off: the Delay Time knob in ms. Sync on: the note division at the host tempo.
+float PluginProcessor::computeDelayTimeMs()
+{
+    if (sync->load() < 0.5f)
+        return delayTimeMs->load();
+
+    updateHostBpm();
+    return (float) TempoSync::divisionToMs (juce::roundToInt (division->load()), hostBpm);
+}
+
+void PluginProcessor::updateHostBpm()
+{
+    if (auto* playHead = getPlayHead())
+        if (const auto position = playHead->getPosition())
+            if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
+                hostBpm = *bpm;
 }
 
 // Mono in, stereo out: both sides start from the same signal, so the plain delay is

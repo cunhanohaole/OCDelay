@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TempoSync.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 // Parameter IDs are part of saved DAW sessions and automation: never rename them once shipped.
@@ -9,6 +10,8 @@ namespace ParamIDs
     inline const juce::ParameterID feedback { "feedback", 1 };
     inline const juce::ParameterID mix { "mix", 1 };
     inline const juce::ParameterID pingPong { "pingPong", 1 };
+    inline const juce::ParameterID sync { "sync", 1 };
+    inline const juce::ParameterID division { "division", 1 };
 }
 
 namespace ParamRanges
@@ -24,6 +27,7 @@ namespace ParamRanges
     inline constexpr float mixDefaultPercent = 50.0f;
 
     inline constexpr bool pingPongDefault = false;
+    inline constexpr bool syncDefault = false;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

@@ -60,6 +60,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (makePercentParameter (ParamIDs::feedback, "Feedback", ParamRanges::feedbackMaxPercent, ParamRanges::feedbackDefaultPercent));
     layout.add (makePercentParameter (ParamIDs::mix, "Mix", 100.0f, ParamRanges::mixDefaultPercent));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pingPong, "Ping-Pong", ParamRanges::pingPongDefault));
+    layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::sync, "Sync", ParamRanges::syncDefault));
+    layout.add (std::make_unique<juce::AudioParameterChoice> (ParamIDs::division, "Division", TempoSync::getDivisionNames(), TempoSync::defaultDivisionIndex));
 
     return layout;
 }

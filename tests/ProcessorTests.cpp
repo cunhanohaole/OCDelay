@@ -159,3 +159,33 @@ TEST_CASE ("Tail length covers the decaying repeats", "[processor]")
     setPlainValue (plugin, ParamIDs::feedback, 50.0f);
     CHECK_THAT (plugin.getTailLengthSeconds(), Catch::Matchers::WithinAbs (0.5 * 11.0, 0.01));
 }
+
+TEST_CASE ("Sync and Division have PRD defaults", "[processor]")
+{
+    PluginProcessor plugin;
+    CHECK (getPlainValue (plugin, ParamIDs::sync) < 0.5f);
+    CHECK (plugin.getAPVTS().getParameter (ParamIDs::division.getParamID())->getCurrentValueAsText() == "1/4");
+}
+
+TEST_CASE ("Sync uses the note division at the host tempo", "[processor]")
+{
+    // No playhead in tests, so the fallback tempo (120 BPM) applies: 1/16 = 125 ms = 6000 samples
+    PluginProcessor plugin;
+    setPlainValue (plugin, ParamIDs::sync, 1.0f);
+    auto* division = plugin.getAPVTS().getParameter (ParamIDs::division.getParamID());
+    division->setValueNotifyingHost (division->convertTo0to1 ((float) TempoSync::getDivisionNames().indexOf ("1/16")));
+
+    REQUIRE (plugin.setBusesLayout (makeLayout (juce::AudioChannelSet::stereo(), juce::AudioChannelSet::stereo())));
+    setPlainValue (plugin, ParamIDs::feedback, 0.0f);
+    setPlainValue (plugin, ParamIDs::mix, 100.0f);
+    plugin.prepareToPlay (48000.0, 12000);
+
+    juce::AudioBuffer<float> buffer (2, 12000);
+    buffer.clear();
+    buffer.setSample (0, 0, 1.0f);
+    juce::MidiBuffer midi;
+    plugin.processBlock (buffer, midi);
+
+    CHECK_THAT (buffer.getSample (0, 6000), Catch::Matchers::WithinAbs (1.0, 1.0e-4));
+    CHECK_THAT (plugin.getTailLengthSeconds(), Catch::Matchers::WithinAbs (0.125, 0.001));
+}
