@@ -2,7 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-// Segmented 4 / 8 / 16 / 32 bar buttons bound to the Length choice parameter.
+// Segmented 1 / 2 / 4 / 8 / 16 / 32 bar buttons bound to the Length choice parameter.
 // Follows automation and session loads through a ParameterAttachment.
 class LengthSelector : public juce::Component
 {

@@ -13,6 +13,11 @@ namespace
         return juce::String (juce::roundToInt (value)) + " %";
     }
 
+    juce::String formatSemitones (float value, int /*maximumStringLength*/)
+    {
+        return juce::String (juce::roundToInt (value)) + " st";
+    }
+
     juce::String formatDecibels (float value, int /*maximumStringLength*/)
     {
         return juce::String (juce::roundToInt (value)) + " dB";
@@ -85,6 +90,19 @@ namespace
                 .withStringFromValueFunction (formatDecibels)
                 .withValueFromStringFunction (parseLeadingNumber));
     }
+
+    std::unique_ptr<juce::AudioParameterFloat> makePitchRangeParameter()
+    {
+        return std::make_unique<juce::AudioParameterFloat> (
+            ParamIDs::pitchRange,
+            "Pitch Range",
+            juce::NormalisableRange<float> { ParamRanges::pitchRangeMinSemitones, ParamRanges::pitchRangeMaxSemitones, 1.0f },
+            ParamRanges::pitchRangeDefaultSemitones,
+            juce::AudioParameterFloatAttributes()
+                .withLabel ("st")
+                .withStringFromValueFunction (formatSemitones)
+                .withValueFromStringFunction (parseLeadingNumber));
+    }
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
@@ -98,6 +116,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (std::make_unique<juce::AudioParameterChoice> (ParamIDs::division, "Division", TempoSync::getDivisionNames(), TempoSync::defaultDivisionIndex));
     layout.add (makeLengthParameter());
     layout.add (makeThresholdParameter());
+    layout.add (makePercentParameter (ParamIDs::pingPongWidth, "Width", 100.0f, ParamRanges::pingPongWidthDefaultPercent));
+    layout.add (makePitchRangeParameter());
+    layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pitchBipolar, "Bipolar", ParamRanges::pitchBipolarDefault));
 
     return layout;
 }

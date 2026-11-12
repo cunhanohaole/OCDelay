@@ -1,4 +1,5 @@
 #include "RepeaterEngine.h"
+#include "PitchMapping.h"
 
 namespace
 {
@@ -29,6 +30,7 @@ void RepeaterEngine::prepare (double newSampleRate, int maxBlockSize, int numCha
     detector.prepare (sampleRate);
     mix.reset (sampleRate, kParameterRampSeconds);
     pingPongAmount.reset (sampleRate, kParameterRampSeconds);
+    pingPongWidth.reset (sampleRate, kParameterRampSeconds);
 
     reset();
 }
@@ -45,6 +47,7 @@ void RepeaterEngine::reset()
 
     mix.setCurrentAndTargetValue (mix.getTargetValue());
     pingPongAmount.setCurrentAndTargetValue (pingPongAmount.getTargetValue());
+    pingPongWidth.setCurrentAndTargetValue (pingPongWidth.getTargetValue());
     playheadPosition.store (-1.0f, std::memory_order_relaxed);
 }
 
@@ -73,30 +76,42 @@ void RepeaterEngine::setPingPong (bool shouldPingPong)
     pingPongAmount.setTargetValue (shouldPingPong ? 1.0f : 0.0f);
 }
 
-void RepeaterEngine::process (juce::AudioBuffer<float>& buffer, std::span<const float> curveTable)
+void RepeaterEngine::setPingPongWidth (float newWidth)
+{
+    pingPongWidth.setTargetValue (juce::jlimit (0.0f, 1.0f, newWidth));
+}
+
+void RepeaterEngine::setPitchRange (float rangeSemitones, bool bipolar)
+{
+    pitchRangeSemitones = rangeSemitones;
+    pitchBipolar = bipolar;
+}
+
+void RepeaterEngine::process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> pitchTable)
 {
     jassert (sampleRate > 0.0); // prepare() must be called first
     jassert (buffer.getNumSamples() <= maxBlockSamples);
     jassert (buffer.getNumChannels() >= numPreparedChannels);
-    jassert (! curveTable.empty());
+    jassert (! volumeTable.empty());
 
+    const Tables tables { volumeTable, pitchTable };
     for (int i = 0; i < buffer.getNumSamples(); ++i)
-        processFrame (buffer, i, curveTable);
+        processFrame (buffer, i, tables);
 
     publishPlayhead();
 }
 
-void RepeaterEngine::processFrame (juce::AudioBuffer<float>& buffer, int index, std::span<const float> curveTable)
+void RepeaterEngine::processFrame (juce::AudioBuffer<float>& buffer, int index, const Tables& tables)
 {
     const auto dry = readFrame (buffer, index);
     detectHit (dry);
 
-    const auto pingPong = pingPongAmount.getNextValue();
+    const Panning panning { pingPongAmount.getNextValue(), pingPongWidth.getNextValue() };
     Frame wet {};
 
     for (auto& voice : voices)
     {
-        const auto voiceWet = renderVoice (voice, dry, pingPong, curveTable);
+        const auto voiceWet = renderVoice (voice, dry, panning, tables);
         wet[0] += voiceWet[0];
         wet[1] += voiceWet[1];
     }
@@ -151,7 +166,7 @@ void RepeaterEngine::latchSettings (Voice& voice) const
 {
     voice.lengthSamples = targetLengthSamples;
     voice.sliceSamples = juce::jlimit (1, juce::jmin (maxSliceSamples, voice.lengthSamples), targetSliceSamples);
-    voice.edgeFadeSamples = juce::jlimit (1, maxEdgeFadeSamples, voice.sliceSamples / 2);
+    setRepeatRate (voice, 1.0); // the original slice plays at its own pitch
 
     // Pre-roll is limited to half the slice so the hit itself always lands inside it.
     voice.position = juce::jmin (preRollSamples, voice.sliceSamples / 2);
@@ -181,7 +196,7 @@ void RepeaterEngine::pushPreRoll (const Frame& dry)
     preRollWriteIndex = (preRollWriteIndex + 1) % preRollSamples;
 }
 
-RepeaterEngine::Frame RepeaterEngine::renderVoice (Voice& voice, const Frame& dry, float pingPong, std::span<const float> curveTable) const
+RepeaterEngine::Frame RepeaterEngine::renderVoice (Voice& voice, const Frame& dry, const Panning& panning, const Tables& tables) const
 {
     if (! voice.active)
         return {};
@@ -191,8 +206,11 @@ RepeaterEngine::Frame RepeaterEngine::renderVoice (Voice& voice, const Frame& dr
     Frame wet {};
     if (voice.isRepeating())
     {
-        const auto gain = wetGain (voice, curveTable);
-        const auto repeat = readRepeat (voice, pingPong);
+        if (voice.position % voice.sliceSamples == 0)
+            startRepeat (voice, tables.pitch);
+
+        const auto gain = wetGain (voice, tables.volume);
+        const auto repeat = readRepeat (voice, panning);
         wet = { repeat[0] * gain, repeat[1] * gain };
     }
 
@@ -209,28 +227,58 @@ void RepeaterEngine::captureSample (Voice& voice, const Frame& dry) const
         voice.capture.setSample (channel, voice.position, dry[static_cast<size_t> (channel)]);
 }
 
-RepeaterEngine::Frame RepeaterEngine::readRepeat (const Voice& voice, float pingPong) const
+// Holds the pitch curve's value at the start of the repeat for the whole repeat
+void RepeaterEngine::startRepeat (Voice& voice, std::span<const float> pitchTable) const
+{
+    if (pitchTable.empty())
+    {
+        setRepeatRate (voice, 1.0);
+        return;
+    }
+
+    const auto normalisedTime = static_cast<double> (voice.position) / static_cast<double> (voice.lengthSamples);
+    const auto semitones = PitchMapping::toSemitones (lookUp (pitchTable, normalisedTime), pitchRangeSemitones, pitchBipolar);
+    setRepeatRate (voice, PitchMapping::semitonesToRate (semitones));
+}
+
+// Faster playback runs out of slice early; the edge fades follow the audio that is played
+void RepeaterEngine::setRepeatRate (Voice& voice, double rate) const
+{
+    jassert (rate > 0.0);
+    voice.rate = rate;
+
+    const auto lastReadable = static_cast<double> (voice.sliceSamples - 1);
+    voice.playedSamples = juce::jmin (voice.sliceSamples, static_cast<int> (lastReadable / rate) + 1);
+    voice.edgeFadeSamples = juce::jlimit (1, maxEdgeFadeSamples, voice.playedSamples / 2);
+}
+
+RepeaterEngine::Frame RepeaterEngine::readRepeat (const Voice& voice, const Panning& panning) const
 {
     const auto slicePosition = voice.position % voice.sliceSamples;
-    const auto left = voice.capture.getSample (0, slicePosition);
+    if (slicePosition >= voice.playedSamples)
+        return {};
+
+    const auto readPosition = static_cast<double> (slicePosition) * voice.rate;
+    const auto left = readInterpolated (voice.capture, 0, readPosition, voice.sliceSamples);
 
     if (numPreparedChannels == 1)
         return { left, 0.0f };
 
-    const auto right = voice.capture.getSample (1, slicePosition);
+    const auto right = readInterpolated (voice.capture, 1, readPosition, voice.sliceSamples);
     const auto mono = 0.5f * (left + right);
+    const auto farSide = mono * (1.0f - panning.width);
     const auto repeatIsOdd = (voice.position / voice.sliceSamples) % 2 == 1;
-    const Frame pingPongFrame = repeatIsOdd ? Frame { mono, 0.0f } : Frame { 0.0f, mono };
+    const Frame pingPongFrame = repeatIsOdd ? Frame { mono, farSide } : Frame { farSide, mono };
 
-    return { left + (pingPongFrame[0] - left) * pingPong, right + (pingPongFrame[1] - right) * pingPong };
+    return { left + (pingPongFrame[0] - left) * panning.amount, right + (pingPongFrame[1] - right) * panning.amount };
 }
 
-float RepeaterEngine::wetGain (const Voice& voice, std::span<const float> curveTable) const
+float RepeaterEngine::wetGain (const Voice& voice, std::span<const float> volumeTable) const
 {
     const auto normalisedTime = static_cast<double> (voice.position) / static_cast<double> (voice.lengthSamples);
 
-    return curveGainAt (curveTable, normalisedTime)
-           * edgeFadeGain (voice.position % voice.sliceSamples, voice.sliceSamples, voice.edgeFadeSamples)
+    return lookUp (volumeTable, normalisedTime)
+           * edgeFadeGain (voice.position % voice.sliceSamples, voice.playedSamples, voice.edgeFadeSamples)
            * endFadeGain (voice.lengthSamples - voice.position, voice.edgeFadeSamples)
            * restartFadeGain (voice);
 }
@@ -265,28 +313,46 @@ void RepeaterEngine::publishPlayhead()
     playheadPosition.store (position, std::memory_order_relaxed);
 }
 
-float RepeaterEngine::curveGainAt (std::span<const float> curveTable, double normalisedTime)
+float RepeaterEngine::lookUp (std::span<const float> table, double normalisedTime)
 {
-    if (curveTable.empty())
+    if (table.empty())
         return 1.0f;
 
-    if (curveTable.size() == 1)
-        return curveTable.front();
+    if (table.size() == 1)
+        return table.front();
 
-    const auto lastIndex = curveTable.size() - 1;
+    const auto lastIndex = table.size() - 1;
     const auto x = juce::jlimit (0.0, 1.0, normalisedTime) * static_cast<double> (lastIndex);
     const auto index = juce::jmin (static_cast<size_t> (x), lastIndex - 1);
     const auto fraction = static_cast<float> (x - static_cast<double> (index));
 
-    return curveTable[index] + (curveTable[index + 1] - curveTable[index]) * fraction;
+    return table[index] + (table[index + 1] - table[index]) * fraction;
 }
 
-float RepeaterEngine::edgeFadeGain (int slicePosition, int sliceSamples, int fadeSamples)
+// Catmull-Rom cubic between samples; exact on whole-sample positions
+float RepeaterEngine::readInterpolated (const juce::AudioBuffer<float>& capture, int channel, double position, int sliceSamples)
 {
-    // 0 on the first and last sample of every repeat, so consecutive repeats meet at silence.
+    const auto index = static_cast<int> (position);
+    const auto t = static_cast<float> (position - static_cast<double> (index));
+    const auto sampleAt = [&] (int i) { return capture.getSample (channel, juce::jlimit (0, sliceSamples - 1, i)); };
+
+    const auto y0 = sampleAt (index - 1);
+    const auto y1 = sampleAt (index);
+    const auto y2 = sampleAt (index + 1);
+    const auto y3 = sampleAt (index + 2);
+
+    const auto c1 = 0.5f * (y2 - y0);
+    const auto c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+    const auto c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+    return ((c3 * t + c2) * t + c1) * t + y1;
+}
+
+float RepeaterEngine::edgeFadeGain (int slicePosition, int playedSamples, int fadeSamples)
+{
+    // 0 on the first and last played sample of every repeat, so consecutive repeats meet at silence.
     const auto fadeIn = static_cast<float> (slicePosition) / static_cast<float> (fadeSamples);
-    const auto fadeOut = static_cast<float> (sliceSamples - 1 - slicePosition) / static_cast<float> (fadeSamples);
-    return juce::jmin (1.0f, fadeIn, fadeOut);
+    const auto fadeOut = static_cast<float> (playedSamples - 1 - slicePosition) / static_cast<float> (fadeSamples);
+    return juce::jlimit (0.0f, 1.0f, juce::jmin (fadeIn, fadeOut));
 }
 
 float RepeaterEngine::endFadeGain (int samplesToEnd, int fadeSamples)

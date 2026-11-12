@@ -1,7 +1,7 @@
 # OCDelay
 
 ## What This Is
-A free VST3 repeater for single-shot sounds: it captures a slice after a hit and repeats it for an exact number of bars, with a drawn volume curve. The spec is in `PRD.md` — build only what it lists.
+A free VST3 repeater for single-shot sounds: it captures a slice after a hit and repeats it for an exact number of bars, with drawn volume and pitch curves. The spec is in `PRD.md` — build only what it lists.
 
 ## Tech Stack
 - **Framework:** JUCE 9 (git submodule in `JUCE/`), native JUCE UI with the default look-and-feel
@@ -27,7 +27,7 @@ Builds default to Debug. Use `--config Release` when judging CPU use or audio dr
 ## Architecture
 - `PluginProcessor` owns the APVTS and composes the DSP classes. It contains no raw DSP math.
 - DSP (trigger detection, capture, playback) lives in its own class(es) under `source/dsp/`, with no dependency on the editor or APVTS, so it can be unit-tested directly.
-- The volume curve is model data, separate from its editor component. The audio thread reads a lookup table rebuilt on the message thread and swapped in lock-free; it never touches the editable curve.
+- The volume and pitch curves are model data (`EnvelopeCurve`), separate from their editor component. The audio thread reads a lookup table rebuilt on the message thread and swapped in lock-free; it never touches the editable curve.
 - Define all parameters in one `createParameterLayout()` function, with IDs in a single constants header. Never rename a parameter ID once it ships.
 - The editor only reads and writes parameters through APVTS attachments. Deleting the editor must not affect the audio.
 - Plugin sources link through the `SharedCode` INTERFACE library so that `Tests` sees the same code.

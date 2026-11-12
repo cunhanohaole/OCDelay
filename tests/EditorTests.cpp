@@ -55,9 +55,9 @@ TEST_CASE ("Editor controls sit in the bottom strip, inside the window", "[edito
         const auto stripTop = bounds.getHeight() * 7 / 10;
         const auto controls = getControls (*editor);
 
-        // Slice, Division (hidden), Length, Threshold, Mix, Sync, Ping-Pong
-        CHECK (controls.size() == 7);
-        CHECK (countVisible (controls) == 6);
+        // Slice, Division (hidden), Length, Threshold, Mix, Width, Sync, Ping-Pong
+        CHECK (controls.size() == 8);
+        CHECK (countVisible (controls) == 7);
 
         for (auto* control : controls)
         {
@@ -112,7 +112,7 @@ TEST_CASE ("Curve editor follows the processor's curve", "[editor]")
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
         REQUIRE (curveEditor != nullptr);
-        CHECK (curveEditor->getCurve() == VolumeCurve {});
+        CHECK (curveEditor->getCurve() == EnvelopeCurve {});
 
         // e.g. a session load replacing the curve while the editor is open
         auto replaced = plugin.getCurve();
@@ -129,13 +129,34 @@ TEST_CASE ("Length buttons follow the parameter", "[editor]")
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* selector = findChild<LengthSelector> (*plugin.getActiveEditor());
         REQUIRE (selector != nullptr);
-        CHECK (selector->getSelectedIndex() == 1); // 8 bars
+        CHECK (selector->getSelectedIndex() == 3); // 8 bars
 
         auto* length = plugin.getAPVTS().getParameter (ParamIDs::length.getParamID());
-        length->setValueNotifyingHost (length->convertTo0to1 (3.0f)); // 32 bars
+        length->setValueNotifyingHost (length->convertTo0to1 (5.0f)); // 32 bars
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
 
-        CHECK (selector->getSelectedIndex() == 3);
+        CHECK (selector->getSelectedIndex() == 5);
         CHECK (plugin.getLengthBars() == 32);
+    });
+}
+
+TEST_CASE ("Pitch tab shows and edits the pitch curve", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
+        REQUIRE (curveEditor != nullptr);
+
+        curveEditor->getToolbar().setTarget (CurveTarget::pitch);
+        CHECK (curveEditor->getCurve() == plugin.getCurve (CurveTarget::pitch));
+
+        // A pitch curve replaced from outside shows up; the volume curve is untouched
+        auto replaced = EnvelopeCurve::makeFlat (0.5f);
+        plugin.updateCurve (replaced, CurveTarget::pitch);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+        CHECK (curveEditor->getCurve() == replaced);
+        CHECK (plugin.getCurve (CurveTarget::volume) == EnvelopeCurve {});
+
+        curveEditor->getToolbar().setTarget (CurveTarget::volume);
+        CHECK (curveEditor->getCurve() == EnvelopeCurve {});
     });
 }

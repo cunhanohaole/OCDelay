@@ -3,8 +3,8 @@
 #include <juce_data_structures/juce_data_structures.h>
 #include <span>
 
-// One breakpoint of the volume curve. x is the position in the tail (0 = hit, 1 = end of
-// Length), y is the volume (0-1). curvature bends the segment that starts at this point.
+// One breakpoint of an envelope curve. x is the position in the tail (0 = hit, 1 = end of
+// Length), y is the normalised value (0-1). curvature bends the segment that starts here.
 struct CurvePoint
 {
     float x = 0.0f;
@@ -17,18 +17,19 @@ struct CurvePoint
     }
 };
 
-// Editable volume envelope over the repeater's tail. Message thread only: the audio thread
-// reads a table filled from it (see fillTable), never the curve itself.
+// Editable envelope over the repeater's tail, used for both volume and pitch. Message thread
+// only: the audio thread reads a table filled from it (see fillTable), never the curve itself.
 //
 // Invariants: at least two points, the first at x = 0 and the last at x = 1, points sorted by
 // x, every value clamped to its range.
-class VolumeCurve
+class EnvelopeCurve
 {
 public:
     static constexpr size_t kMaxPoints = 64;
     static constexpr float kMaxCurvature = 1.0f;
 
-    VolumeCurve(); // straight ramp from full volume to silence
+    EnvelopeCurve(); // straight ramp from 1 down to 0 (the default volume curve)
+    static EnvelopeCurve makeFlat (float y); // a constant value (the default pitch curve)
 
     const std::vector<CurvePoint>& getPoints() const { return points; }
     int getNumPoints() const { return (int) points.size(); }
@@ -50,11 +51,12 @@ public:
     void fillTable (std::span<float> table) const;
 
     juce::ValueTree toValueTree() const;
-    static VolumeCurve fromValueTree (const juce::ValueTree& tree); // invalid tree -> default curve
+    // An invalid or missing tree gives the fallback
+    static EnvelopeCurve fromValueTree (const juce::ValueTree& tree, const EnvelopeCurve& fallback = {});
 
     static const juce::Identifier treeType;
 
-    bool operator== (const VolumeCurve&) const = default;
+    bool operator== (const EnvelopeCurve&) const = default;
 
 private:
     static float shapeSegment (float t, float curvature);

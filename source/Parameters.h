@@ -14,6 +14,9 @@ namespace ParamIDs
     inline const juce::ParameterID division { "division", 1 };
     inline const juce::ParameterID length { "length", 2 };
     inline const juce::ParameterID threshold { "threshold", 2 };
+    inline const juce::ParameterID pingPongWidth { "pingPongWidth", 3 };
+    inline const juce::ParameterID pitchRange { "pitchRange", 3 };
+    inline const juce::ParameterID pitchBipolar { "pitchBipolar", 3 };
 }
 
 namespace ParamRanges
@@ -28,12 +31,20 @@ namespace ParamRanges
     inline constexpr bool pingPongDefault = false;
     inline constexpr bool syncDefault = false;
 
-    inline constexpr std::array<int, 4> lengthBarsOptions { 4, 8, 16, 32 };
-    inline constexpr int lengthDefaultIndex = 1; // 8 bars
+    // Changed in place before v0.2 was released. From now on only ever append choices.
+    inline constexpr std::array<int, 6> lengthBarsOptions { 1, 2, 4, 8, 16, 32 };
+    inline constexpr int lengthDefaultIndex = 3; // 8 bars
 
     inline constexpr float thresholdMinDb = -60.0f;
     inline constexpr float thresholdMaxDb = 0.0f;
     inline constexpr float thresholdDefaultDb = -30.0f;
+
+    inline constexpr float pingPongWidthDefaultPercent = 100.0f;
+
+    inline constexpr float pitchRangeMinSemitones = 1.0f;
+    inline constexpr float pitchRangeMaxSemitones = 48.0f;
+    inline constexpr float pitchRangeDefaultSemitones = 12.0f;
+    inline constexpr bool pitchBipolarDefault = false;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

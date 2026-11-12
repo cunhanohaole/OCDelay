@@ -1,8 +1,7 @@
 #pragma once
 
 #include "TempoSync.h"
-#include "curve/TripleBuffer.h"
-#include "curve/VolumeCurve.h"
+#include "curve/CurveSlot.h"
 #include "dsp/RepeaterEngine.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -40,14 +39,15 @@ public:
 
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
 
-    static constexpr size_t kCurveTableSize = 2048;
-    using CurveTable = std::array<float, kCurveTableSize>;
-
     // Curve editing: message thread only. updateCurve() publishes a new table to the audio
     // thread lock-free and bumps the version, so an open editor can notice session loads.
-    const VolumeCurve& getCurve() const { return curve; }
-    void updateCurve (const VolumeCurve& newCurve);
+    const EnvelopeCurve& getCurve (CurveTarget target = CurveTarget::volume) const;
+    void updateCurve (const EnvelopeCurve& newCurve, CurveTarget target = CurveTarget::volume);
     int getCurveVersion() const { return curveVersion.load(); }
+
+    // Pitch curve mapping, for the UI (the parameters' current values)
+    float getPitchRangeSemitones() const { return pitchRange->load(); }
+    bool isPitchBipolar() const { return pitchBipolar->load() >= 0.5f; }
 
     // Host timing and playback position for the UI (written by the audio thread)
     float getHostBpm() const { return uiBpm.load(); }
@@ -65,7 +65,10 @@ private:
     float computeSliceMs();
     double computeLengthSeconds (double bpm, double beatsPerBar) const;
     void updateHostTiming();
-    static CurveTable makeCurveTable (const VolumeCurve& source);
+    static EnvelopeCurve defaultPitchCurve() { return EnvelopeCurve::makeFlat (0.0f); } // no change in unipolar mode
+    CurveSlot& getSlot (CurveTarget target);
+    void appendCurveTrees (juce::ValueTree& state) const;
+    void restoreCurves (juce::ValueTree& state);
     void copyMonoInputToStereo (juce::AudioBuffer<float>& buffer) const;
 
     juce::AudioProcessorValueTreeState apvts;
@@ -80,6 +83,9 @@ private:
     std::atomic<float>* division = nullptr;
     std::atomic<float>* length = nullptr;
     std::atomic<float>* threshold = nullptr;
+    std::atomic<float>* pingPongWidth = nullptr;
+    std::atomic<float>* pitchRange = nullptr;
+    std::atomic<float>* pitchBipolar = nullptr;
 
     // Audio thread only; keep the last values the host reported
     double hostBpm = TempoSync::fallbackBpm;
@@ -89,8 +95,8 @@ private:
     std::atomic<float> uiBeatsPerBar { 4.0f };
     std::atomic<float> uiPlayhead { -1.0f };
 
-    VolumeCurve curve;
-    TripleBuffer<CurveTable> curveTables;
+    CurveSlot volumeCurve { EnvelopeCurve {} };
+    CurveSlot pitchCurve { defaultPitchCurve() };
     std::atomic<int> curveVersion { 0 };
     std::atomic<float> effectiveSliceMs { 500.0f }; // what the engine is using, for the UI
 
