@@ -9,9 +9,11 @@ namespace
 
 PluginEditor::PluginEditor (PluginProcessor& p)
     : AudioProcessorEditor (&p),
-      delayTimeKnob (p.getAPVTS(), ParamIDs::delayTime, "Delay Time"),
-      divisionKnob (p.getAPVTS(), ParamIDs::division, "Delay Time"),
-      feedbackKnob (p.getAPVTS(), ParamIDs::feedback, "Feedback"),
+      curveEditor (p),
+      delayTimeKnob (p.getAPVTS(), ParamIDs::delayTime, "Slice"),
+      divisionKnob (p.getAPVTS(), ParamIDs::division, "Slice"),
+      lengthSelector (*p.getAPVTS().getParameter (ParamIDs::length.getParamID())),
+      thresholdKnob (p.getAPVTS(), ParamIDs::threshold, "Threshold"),
       mixKnob (p.getAPVTS(), ParamIDs::mix, "Mix"),
       syncAttachment (p.getAPVTS(), ParamIDs::sync.getParamID(), syncButton),
       pingPongAttachment (p.getAPVTS(), ParamIDs::pingPong.getParamID(), pingPongButton),
@@ -20,9 +22,11 @@ PluginEditor::PluginEditor (PluginProcessor& p)
 {
     setLookAndFeel (&lookAndFeel);
 
+    addAndMakeVisible (curveEditor);
     addAndMakeVisible (delayTimeKnob);
     addChildComponent (divisionKnob);
-    addAndMakeVisible (feedbackKnob);
+    addAndMakeVisible (lengthSelector);
+    addAndMakeVisible (thresholdKnob);
     addAndMakeVisible (mixKnob);
     addAndMakeVisible (syncButton);
     addAndMakeVisible (pingPongButton);
@@ -53,26 +57,29 @@ void PluginEditor::resized()
     auto area = getLocalBounds();
     const auto strip = area.removeFromBottom (proportionOfHeight (kControlStripHeight));
 
-    // The area above the strip is reserved for the future curve editor
     layoutControlStrip (strip.reduced (proportionOfWidth (0.02f), proportionOfHeight (0.02f)));
+    curveEditor.setBounds (area.reduced (proportionOfWidth (0.02f), proportionOfHeight (0.02f)));
 
 #if JUCE_DEBUG
-    inspectButton.setBounds (area.removeFromTop (proportionOfHeight (0.08f))
-                                 .removeFromRight (proportionOfWidth (0.14f))
-                                 .reduced (proportionOfWidth (0.01f)));
+    // Top-left corner, in the curve editor's top bar (left of the Snap toggle)
+    inspectButton.setBounds (curveEditor.getBounds()
+                                 .removeFromTop (curveEditor.proportionOfHeight (0.12f))
+                                 .removeFromLeft (proportionOfWidth (0.12f))
+                                 .reduced (2));
 #endif
 }
 
-// Four equal columns: Delay Time / Division, Feedback, Mix, switches
+// Five equal columns: Slice / Division, Length, Threshold, Mix, switches
 void PluginEditor::layoutControlStrip (juce::Rectangle<int> strip)
 {
-    const auto columnWidth = strip.getWidth() / 4;
+    const auto columnWidth = strip.getWidth() / 5;
 
-    const auto delayColumn = strip.removeFromLeft (columnWidth);
-    delayTimeKnob.setBounds (delayColumn);
-    divisionKnob.setBounds (delayColumn);
+    const auto sliceColumn = strip.removeFromLeft (columnWidth);
+    delayTimeKnob.setBounds (sliceColumn);
+    divisionKnob.setBounds (sliceColumn);
 
-    feedbackKnob.setBounds (strip.removeFromLeft (columnWidth));
+    lengthSelector.setBounds (strip.removeFromLeft (columnWidth).reduced (proportionOfWidth (0.01f), 0));
+    thresholdKnob.setBounds (strip.removeFromLeft (columnWidth));
     mixKnob.setBounds (strip.removeFromLeft (columnWidth));
 
     layoutSwitches (strip);

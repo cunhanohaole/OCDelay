@@ -5,16 +5,26 @@
 
 namespace
 {
-    // Knobs and switches, excluding the debug-only inspector button
+    // Strip controls, excluding the curve editor and the debug-only inspector button
     juce::Array<juce::Component*> getControls (juce::Component& editor)
     {
         juce::Array<juce::Component*> controls;
 
         for (auto* child : editor.getChildren())
-            if (dynamic_cast<juce::TextButton*> (child) == nullptr)
+            if (dynamic_cast<juce::TextButton*> (child) == nullptr && dynamic_cast<CurveEditor*> (child) == nullptr)
                 controls.add (child);
 
         return controls;
+    }
+
+    template <typename ComponentType>
+    ComponentType* findChild (juce::Component& editor)
+    {
+        for (auto* child : editor.getChildren())
+            if (auto* match = dynamic_cast<ComponentType*> (child))
+                return match;
+
+        return nullptr;
     }
 
     int countVisible (const juce::Array<juce::Component*>& components)
@@ -45,9 +55,9 @@ TEST_CASE ("Editor controls sit in the bottom strip, inside the window", "[edito
         const auto stripTop = bounds.getHeight() * 7 / 10;
         const auto controls = getControls (*editor);
 
-        // Delay Time, Division (hidden), Feedback, Mix, Sync, Ping-Pong
-        CHECK (controls.size() == 6);
-        CHECK (countVisible (controls) == 5);
+        // Slice, Division (hidden), Length, Threshold, Mix, Sync, Ping-Pong
+        CHECK (controls.size() == 7);
+        CHECK (countVisible (controls) == 6);
 
         for (auto* control : controls)
         {
@@ -57,7 +67,7 @@ TEST_CASE ("Editor controls sit in the bottom strip, inside the window", "[edito
     });
 }
 
-TEST_CASE ("Sync swaps the Delay Time knob for the Division knob", "[editor]")
+TEST_CASE ("Sync swaps the Slice knob for the Division knob", "[editor]")
 {
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* editor = plugin.getActiveEditor();
@@ -71,14 +81,61 @@ TEST_CASE ("Sync swaps the Delay Time knob for the Division knob", "[editor]")
             return juce::String();
         };
 
-        CHECK (isSliderShownFor ("Delay Time").endsWith ("ms"));
+        CHECK (isSliderShownFor ("Slice").endsWith ("ms"));
 
         syncParameter->setValueNotifyingHost (1.0f);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
-        CHECK (isSliderShownFor ("Delay Time") == "1/4");
+        CHECK (isSliderShownFor ("Slice") == "1/4");
 
         syncParameter->setValueNotifyingHost (0.0f);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
-        CHECK (isSliderShownFor ("Delay Time").endsWith ("ms"));
+        CHECK (isSliderShownFor ("Slice").endsWith ("ms"));
+    });
+}
+
+TEST_CASE ("Curve editor fills the area above the strip", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* editor = plugin.getActiveEditor();
+        auto* curveEditor = findChild<CurveEditor> (*editor);
+        REQUIRE (curveEditor != nullptr);
+
+        const auto stripTop = editor->getHeight() * 7 / 10;
+        CHECK (curveEditor->getBottom() <= stripTop);
+        CHECK (curveEditor->getHeight() > editor->getHeight() / 2);
+        CHECK (curveEditor->getWidth() > editor->getWidth() * 9 / 10);
+    });
+}
+
+TEST_CASE ("Curve editor follows the processor's curve", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
+        REQUIRE (curveEditor != nullptr);
+        CHECK (curveEditor->getCurve() == VolumeCurve {});
+
+        // e.g. a session load replacing the curve while the editor is open
+        auto replaced = plugin.getCurve();
+        replaced.addPoint (0.5f, 1.0f);
+        plugin.updateCurve (replaced);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+
+        CHECK (curveEditor->getCurve() == replaced);
+    });
+}
+
+TEST_CASE ("Length buttons follow the parameter", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* selector = findChild<LengthSelector> (*plugin.getActiveEditor());
+        REQUIRE (selector != nullptr);
+        CHECK (selector->getSelectedIndex() == 1); // 8 bars
+
+        auto* length = plugin.getAPVTS().getParameter (ParamIDs::length.getParamID());
+        length->setValueNotifyingHost (length->convertTo0to1 (3.0f)); // 32 bars
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+
+        CHECK (selector->getSelectedIndex() == 3);
+        CHECK (plugin.getLengthBars() == 32);
     });
 }
