@@ -61,6 +61,12 @@ include(PamplejuceFunctions)
 # On Github Actions, this is done as a part of actions/checkout
 add_subdirectory(JUCE)
 
+# Local macOS builds copy the VST3 to the shared plug-in folder that every account and DAW
+# scans (JUCE's default is the per-user ~/Library one). Skipped on CI, where it isn't needed.
+if (APPLE AND NOT DEFINED ENV{CI})
+    set_property(GLOBAL PROPERTY JUCE_VST3_COPY_DIR "/Library/Audio/Plug-Ins/VST3")
+endif ()
+
 # CLAP format: out of scope for now (VST3 only, see PRD.md)
 # add_subdirectory(modules/clap-juce-extensions EXCLUDE_FROM_ALL)
 
@@ -79,7 +85,7 @@ juce_add_plugin("${PROJECT_NAME}"
     COMPANY_NAME "${COMPANY_NAME}"
     BUNDLE_ID "${BUNDLE_ID}"
 
-    # On MacOS, plugin is copied to /Users/yourname/Library/Audio/Plug-Ins/
+    # On macOS, local builds copy the VST3 to /Library/Audio/Plug-Ins/VST3 (see above)
     COPY_PLUGIN_AFTER_BUILD TRUE
 
     # Change me!

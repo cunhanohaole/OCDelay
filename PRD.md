@@ -10,14 +10,17 @@ A clean digital delay for people who want precise control over their repeats (th
 | Feedback   | float | 0 – 95      | 35      | %    | Hard cap enforced in the DSP, not only the UI |
 | Mix        | float | 0 – 100     | 50      | %    | 0 = dry only, 100 = wet only |
 | Ping-Pong  | bool  | off / on    | off     | —    | Repeats alternate between left and right |
+| Sync       | bool  | off / on    | off     | —    | Off: Delay Time in ms. On: delay time is a note division at the host tempo |
+| Division   | choice | 1/64 … 1/1 | 1/4     | note | 17 steps, shortest to longest, including dotted (D) and triplet (T) values |
 
 - VST3 only, macOS and Windows.
-- Native JUCE UI: one rotary knob per float parameter, a toggle for Ping-Pong, value readouts with units.
+- Native JUCE UI: rotary knobs for Delay Time / Division, Feedback and Mix, toggles for Sync and Ping-Pong, value readouts with units.
 
 ## UI Layout
 - Fixed window size, not resizable in v0.1: [NEED: confirm size — start at 640 × 400 px].
 - Lay out every component relative to the editor bounds (no hard-coded pixel positions), so resizing can be added later without rewriting the layout.
-- Controls sit in one strip along the bottom of the window: Delay Time, Feedback, Mix, Ping-Pong.
+- Controls sit in one strip along the bottom of the window, about 30% of its height: Delay Time, Feedback, Mix, then the Sync and Ping-Pong switches stacked.
+- Delay Time and Division share one knob slot; the Sync switch decides which is shown.
 - The area above the strip is reserved for the future curve editor and stays empty in v0.1.
 - All styling goes through a single custom `juce::LookAndFeel_V4` subclass, visually identical to JUCE's default for now.
 - A full visual design pass happens after v0.1 ships and before the curve-editor work starts.
@@ -28,6 +31,9 @@ A clean digital delay for people who want precise control over their repeats (th
 - Ping-Pong on: the input is summed to mono and the repeats alternate L → R → L.
 - Ping-Pong also applies to a mono input on a stereo output.
 - Ping-Pong has no effect on a mono → mono layout (there is nowhere to bounce to).
+- Division steps: 1/64, 1/32T, 1/32, 1/16T, 1/32D, 1/16, 1/8T, 1/16D, 1/8, 1/4T, 1/8D, 1/4, 1/2T, 1/4D, 1/2, 1/2D, 1/1.
+- Synced delay time follows the host tempo. If the host reports no tempo, the last known tempo is used (120 BPM until one is reported).
+- Synced delays can exceed the 2 s ms range. The delay buffer holds 8 s (a 1/1 division down to 30 BPM); anything longer is clamped to 8 s.
 - Changing Delay Time while audio plays glides the pitch, tape-style (smoothed read position with interpolation, never a hard jump).
 - Glide smoothing time: [NEED: confirm by ear — start around 100 ms].
 - Feedback and Mix changes are smoothed: no zipper noise or clicks.
@@ -45,7 +51,7 @@ A clean digital delay for people who want precise control over their repeats (th
 - v0.1 must keep the per-repeat gain and the maximum buffer length easy to change later, so these features can replace feedback as the gain source.
 
 ## Out of Scope (for now)
-- Tempo sync / bars mode
+- Bars mode longer than 1/1, and tail length measured in bars
 - Tail-length control and the curve editor
 - Preset system or preset browser
 - Filters on the repeats (low cut / high cut)

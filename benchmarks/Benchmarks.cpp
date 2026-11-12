@@ -30,3 +30,22 @@ TEST_CASE ("Boot performance")
         });
     };
 }
+
+TEST_CASE ("Processing performance")
+{
+    BENCHMARK_ADVANCED ("processBlock 512 stereo")
+    (Catch::Benchmark::Chronometer meter)
+    {
+        PluginProcessor plugin;
+        plugin.prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::Random random (1);
+        for (int channel = 0; channel < 2; ++channel)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                buffer.setSample (channel, i, random.nextFloat() - 0.5f);
+
+        juce::MidiBuffer midi;
+        meter.measure ([&] { plugin.processBlock (buffer, midi); });
+    };
+}

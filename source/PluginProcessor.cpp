@@ -1,22 +1,37 @@
 #include "PluginProcessor.h"
+#include "Parameters.h"
+#include "TempoSync.h"
 #include "PluginEditor.h"
+
+namespace
+{
+    const juce::Identifier stateTag { "OCDelayState" };
+
+    bool isMonoOrStereo (const juce::AudioChannelSet& set)
+    {
+        return set == juce::AudioChannelSet::mono() || set == juce::AudioChannelSet::stereo();
+    }
+}
 
 //==============================================================================
 PluginProcessor::PluginProcessor()
-     : AudioProcessor (BusesProperties()
-                     #if ! JucePlugin_IsMidiEffect
-                      #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                      #endif
-                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
-                     #endif
-                       )
+    : AudioProcessor (BusesProperties()
+                          .withInput ("Input", juce::AudioChannelSet::stereo(), true)
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts (*this, nullptr, stateTag, createParameterLayout())
 {
+    delayTimeMs = apvts.getRawParameterValue (ParamIDs::delayTime.getParamID());
+    feedbackPercent = apvts.getRawParameterValue (ParamIDs::feedback.getParamID());
+    mixPercent = apvts.getRawParameterValue (ParamIDs::mix.getParamID());
+    pingPong = apvts.getRawParameterValue (ParamIDs::pingPong.getParamID());
+    sync = apvts.getRawParameterValue (ParamIDs::sync.getParamID());
+    division = apvts.getRawParameterValue (ParamIDs::division.getParamID());
+
+    jassert (delayTimeMs != nullptr && feedbackPercent != nullptr && mixPercent != nullptr
+             && pingPong != nullptr && sync != nullptr && division != nullptr);
 }
 
-PluginProcessor::~PluginProcessor()
-{
-}
+PluginProcessor::~PluginProcessor() = default;
 
 //==============================================================================
 const juce::String PluginProcessor::getName() const
@@ -26,40 +41,35 @@ const juce::String PluginProcessor::getName() const
 
 bool PluginProcessor::acceptsMidi() const
 {
-   #if JucePlugin_WantsMidiInput
-    return true;
-   #else
     return false;
-   #endif
 }
 
 bool PluginProcessor::producesMidi() const
 {
-   #if JucePlugin_ProducesMidiOutput
-    return true;
-   #else
     return false;
-   #endif
 }
 
 bool PluginProcessor::isMidiEffect() const
 {
-   #if JucePlugin_IsMidiEffect
-    return true;
-   #else
     return false;
-   #endif
 }
 
+// Time until the repeats have decayed by 60 dB at the current settings
 double PluginProcessor::getTailLengthSeconds() const
 {
-    return 0.0;
+    const auto delaySeconds = juce::jmin (kMaxDelaySeconds, (double) effectiveDelayMs.load() / 1000.0);
+    const auto feedbackGain = juce::jlimit (0.0, (double) DelayEngine::kMaxFeedback, (double) feedbackPercent->load() / 100.0);
+
+    if (feedbackGain <= 0.0)
+        return delaySeconds;
+
+    const auto repeatsUntilSilent = std::ceil (std::log (0.001) / std::log (feedbackGain));
+    return delaySeconds * (1.0 + repeatsUntilSilent);
 }
 
 int PluginProcessor::getNumPrograms()
 {
-    return 1;   // NB: some hosts don't cope very well if you tell them there are 0 programs,
-                // so this should be at least 1, even if you're not really implementing programs.
+    return 1; // Some hosts don't cope with 0 programs
 }
 
 int PluginProcessor::getCurrentProgram()
@@ -87,75 +97,80 @@ void PluginProcessor::changeProgramName (int index, const juce::String& newName)
 //==============================================================================
 void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // Use this method as the place to do any pre-playback
-    // initialisation that you need..
-    juce::ignoreUnused (sampleRate, samplesPerBlock);
+    pushParametersToEngine();
+    delayEngine.prepare (sampleRate, samplesPerBlock, getTotalNumOutputChannels(), kMaxDelaySeconds);
 }
 
 void PluginProcessor::releaseResources()
 {
-    // When playback stops, you can use this as an opportunity to free up any
-    // spare memory, etc.
 }
 
+// Supported: mono -> mono, mono -> stereo, stereo -> stereo
 bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-  #if JucePlugin_IsMidiEffect
-    juce::ignoreUnused (layouts);
-    return true;
-  #else
-    // This is the place where you check if the layout is supported.
-    // In this template code we only support mono or stereo.
-    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+    const auto& input = layouts.getMainInputChannelSet();
+    const auto& output = layouts.getMainOutputChannelSet();
+
+    if (!isMonoOrStereo (input) || !isMonoOrStereo (output))
         return false;
 
-    // This checks if the input layout matches the output layout
-   #if ! JucePlugin_IsSynth
-    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
-        return false;
-   #endif
-
-    return true;
-  #endif
+    return input.size() <= output.size();
 }
 
-void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                              juce::MidiBuffer& midiMessages)
+void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused (midiMessages);
-
     juce::ScopedNoDenormals noDenormals;
-    auto totalNumInputChannels  = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, buffer.getNumSamples());
+    // Output channels without a matching input may contain garbage
+    for (auto channel = getTotalNumInputChannels(); channel < getTotalNumOutputChannels(); ++channel)
+        buffer.clear (channel, 0, buffer.getNumSamples());
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        auto* channelData = buffer.getWritePointer (channel);
-        juce::ignoreUnused (channelData);
-        // ..do something to the data...
-    }
+    copyMonoInputToStereo (buffer);
+    pushParametersToEngine();
+    delayEngine.process (buffer);
+}
+
+void PluginProcessor::pushParametersToEngine()
+{
+    const auto delayMs = computeDelayTimeMs();
+    effectiveDelayMs.store (delayMs);
+    delayEngine.setDelayTimeMs (delayMs);
+    delayEngine.setFeedback (feedbackPercent->load() / 100.0f);
+    delayEngine.setMix (mixPercent->load() / 100.0f);
+    delayEngine.setPingPong (pingPong->load() >= 0.5f);
+}
+
+// Sync off: the Delay Time knob in ms. Sync on: the note division at the host tempo.
+float PluginProcessor::computeDelayTimeMs()
+{
+    if (sync->load() < 0.5f)
+        return delayTimeMs->load();
+
+    updateHostBpm();
+    return (float) TempoSync::divisionToMs (juce::roundToInt (division->load()), hostBpm);
+}
+
+void PluginProcessor::updateHostBpm()
+{
+    if (auto* playHead = getPlayHead())
+        if (const auto position = playHead->getPosition())
+            if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
+                hostBpm = *bpm;
+}
+
+// Mono in, stereo out: both sides start from the same signal, so the plain delay is
+// centred and ping-pong (which sums to mono) bounces the mono input
+void PluginProcessor::copyMonoInputToStereo (juce::AudioBuffer<float>& buffer) const
+{
+    if (getTotalNumInputChannels() == 1 && buffer.getNumChannels() >= 2)
+        buffer.copyFrom (1, 0, buffer, 0, 0, buffer.getNumSamples());
 }
 
 //==============================================================================
 bool PluginProcessor::hasEditor() const
 {
-    return true; // (change this to false if you choose to not supply an editor)
+    return true;
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor()
@@ -166,21 +181,19 @@ juce::AudioProcessorEditor* PluginProcessor::createEditor()
 //==============================================================================
 void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
-    juce::ignoreUnused (destData);
+    if (const auto xml = apvts.copyState().createXml())
+        copyXmlToBinary (*xml, destData);
 }
 
 void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
-    juce::ignoreUnused (data, sizeInBytes);
+    const auto xml = getXmlFromBinary (data, sizeInBytes);
+
+    if (xml != nullptr && xml->hasTagName (apvts.state.getType()))
+        apvts.replaceState (juce::ValueTree::fromXml (*xml));
 }
 
 //==============================================================================
-// This creates new instances of the plugin..
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new PluginProcessor();
