@@ -3,8 +3,16 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+using Catch::Matchers::WithinAbs;
+
 namespace
 {
+    constexpr double kSampleRate = 48000.0;
+    constexpr int kBlockSize = 512;
+
+    // With no playhead the processor uses 120 BPM in 4/4, and the pre-roll is 5 ms
+    constexpr int kPreRollSamples = 240;
+
     float getPlainValue (PluginProcessor& plugin, const juce::ParameterID& id)
     {
         return plugin.getAPVTS().getRawParameterValue (id.getParamID())->load();
@@ -17,6 +25,11 @@ namespace
         parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
     }
 
+    juce::String getText (PluginProcessor& plugin, const juce::ParameterID& id)
+    {
+        return plugin.getAPVTS().getParameter (id.getParamID())->getCurrentValueAsText();
+    }
+
     juce::AudioProcessor::BusesLayout makeLayout (const juce::AudioChannelSet& input, const juce::AudioChannelSet& output)
     {
         juce::AudioProcessor::BusesLayout layout;
@@ -24,17 +37,74 @@ namespace
         layout.outputBuses.add (output);
         return layout;
     }
+
+    void useFlatCurve (PluginProcessor& plugin)
+    {
+        VolumeCurve flat;
+        flat.movePoint (1, 1.0f, 1.0f);
+        plugin.updateCurve (flat);
+    }
+
+    void processInBlocks (PluginProcessor& plugin, juce::AudioBuffer<float>& buffer)
+    {
+        juce::MidiBuffer midi;
+
+        for (int start = 0; start < buffer.getNumSamples(); start += kBlockSize)
+        {
+            const auto length = juce::jmin (kBlockSize, buffer.getNumSamples() - start);
+            juce::AudioBuffer<float> block (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, length);
+            plugin.processBlock (block, midi);
+        }
+    }
+
+    // Silence, then a 100-sample burst of 0.5 on the input channels starting at hitSample,
+    // processed 100% wet in host-sized blocks
+    juce::AudioBuffer<float> processHit (PluginProcessor& plugin,
+        const juce::AudioChannelSet& input,
+        const juce::AudioChannelSet& output,
+        int numSamples,
+        int hitSample = 1000)
+    {
+        REQUIRE (plugin.setBusesLayout (makeLayout (input, output)));
+        setPlainValue (plugin, ParamIDs::mix, 100.0f);
+        plugin.prepareToPlay (kSampleRate, kBlockSize);
+
+        juce::AudioBuffer<float> buffer (output.size(), numSamples);
+        buffer.clear();
+        for (int channel = 0; channel < input.size(); ++channel)
+            for (int i = hitSample; i < hitSample + 100; ++i)
+                buffer.setSample (channel, i, 0.5f);
+
+        processInBlocks (plugin, buffer);
+        return buffer;
+    }
+
+    juce::AudioBuffer<float> processStereoHit (PluginProcessor& plugin, int numSamples, int hitSample = 1000)
+    {
+        const auto stereo = juce::AudioChannelSet::stereo();
+        return processHit (plugin, stereo, stereo, numSamples, hitSample);
+    }
 }
 
+//==============================================================================
 TEST_CASE ("Parameters have PRD defaults", "[processor]")
 {
     PluginProcessor plugin;
-    using Catch::Matchers::WithinAbs;
 
     CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), WithinAbs (500.0, 0.01));
-    CHECK_THAT (getPlainValue (plugin, ParamIDs::feedback), WithinAbs (35.0, 0.01));
     CHECK_THAT (getPlainValue (plugin, ParamIDs::mix), WithinAbs (50.0, 0.01));
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::threshold), WithinAbs (-30.0, 0.01));
     CHECK (getPlainValue (plugin, ParamIDs::pingPong) < 0.5f);
+    CHECK (getPlainValue (plugin, ParamIDs::sync) < 0.5f);
+    CHECK (getText (plugin, ParamIDs::division) == "1/4");
+    CHECK (getText (plugin, ParamIDs::length) == "8");
+    CHECK (plugin.getLengthBars() == 8);
+}
+
+TEST_CASE ("Feedback is retired", "[processor]")
+{
+    PluginProcessor plugin;
+    CHECK (plugin.getAPVTS().getParameter ("feedback") == nullptr);
 }
 
 TEST_CASE ("Parameter ranges match PRD", "[processor]")
@@ -42,52 +112,20 @@ TEST_CASE ("Parameter ranges match PRD", "[processor]")
     PluginProcessor plugin;
     auto& apvts = plugin.getAPVTS();
 
-    const auto delayRange = apvts.getParameterRange (ParamIDs::delayTime.getParamID());
-    CHECK (delayRange.start == 1.0f);
-    CHECK (delayRange.end == 2000.0f);
-
-    CHECK (apvts.getParameterRange (ParamIDs::feedback.getParamID()).end == 95.0f);
-    CHECK (apvts.getParameterRange (ParamIDs::mix.getParamID()).end == 100.0f);
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::delayTime.getParamID()).start, 1.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::delayTime.getParamID()).end, 2000.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::mix.getParamID()).end, 100.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::threshold.getParamID()).start, -60.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::threshold.getParamID()).end, 0.0f));
 }
 
 TEST_CASE ("Parameter text shows units", "[processor]")
 {
     PluginProcessor plugin;
-    auto* delay = plugin.getAPVTS().getParameter (ParamIDs::delayTime.getParamID());
-    auto* feedback = plugin.getAPVTS().getParameter (ParamIDs::feedback.getParamID());
 
-    CHECK (delay->getCurrentValueAsText() == "500 ms");
-    CHECK (feedback->getCurrentValueAsText() == "35 %");
-}
-
-TEST_CASE ("State round-trips through get/setStateInformation", "[processor]")
-{
-    PluginProcessor source;
-    setPlainValue (source, ParamIDs::delayTime, 1234.0f);
-    setPlainValue (source, ParamIDs::feedback, 80.0f);
-    setPlainValue (source, ParamIDs::mix, 25.0f);
-    setPlainValue (source, ParamIDs::pingPong, 1.0f);
-
-    juce::MemoryBlock state;
-    source.getStateInformation (state);
-
-    PluginProcessor restored;
-    restored.setStateInformation (state.getData(), (int) state.getSize());
-
-    using Catch::Matchers::WithinAbs;
-    CHECK_THAT (getPlainValue (restored, ParamIDs::delayTime), WithinAbs (1234.0, 0.5));
-    CHECK_THAT (getPlainValue (restored, ParamIDs::feedback), WithinAbs (80.0, 0.01));
-    CHECK_THAT (getPlainValue (restored, ParamIDs::mix), WithinAbs (25.0, 0.01));
-    CHECK (getPlainValue (restored, ParamIDs::pingPong) > 0.5f);
-}
-
-TEST_CASE ("Garbage state is ignored", "[processor]")
-{
-    PluginProcessor plugin;
-    const char garbage[] = "not a valid state";
-    plugin.setStateInformation (garbage, (int) sizeof (garbage));
-
-    CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), Catch::Matchers::WithinAbs (500.0, 0.01));
+    CHECK (getText (plugin, ParamIDs::delayTime) == "500 ms");
+    CHECK (getText (plugin, ParamIDs::mix) == "50 %");
+    CHECK (getText (plugin, ParamIDs::threshold) == "-30 dB");
 }
 
 TEST_CASE ("Supported bus layouts", "[processor]")
@@ -105,87 +143,156 @@ TEST_CASE ("Supported bus layouts", "[processor]")
     CHECK_FALSE (plugin.checkBusesLayoutSupported (makeLayout (stereo, juce::AudioChannelSet::create5point1())));
 }
 
-namespace
+//==============================================================================
+TEST_CASE ("State round-trips parameters and the curve", "[processor]")
 {
-    // Feeds an impulse on input channel 0 through processBlock and returns the output
-    juce::AudioBuffer<float> processImpulse (PluginProcessor& plugin, const juce::AudioChannelSet& input, const juce::AudioChannelSet& output)
+    PluginProcessor source;
+    setPlainValue (source, ParamIDs::delayTime, 1234.0f);
+    setPlainValue (source, ParamIDs::threshold, -42.0f);
+    setPlainValue (source, ParamIDs::length, 3.0f); // 32 bars
+    setPlainValue (source, ParamIDs::pingPong, 1.0f);
+
+    auto edited = source.getCurve();
+    edited.addPoint (0.5f, 1.0f);
+    edited.setCurvature (1, 0.5f);
+    source.updateCurve (edited);
+
+    juce::MemoryBlock state;
+    source.getStateInformation (state);
+
+    PluginProcessor restored;
+    const auto versionBefore = restored.getCurveVersion();
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+
+    CHECK_THAT (getPlainValue (restored, ParamIDs::delayTime), WithinAbs (1234.0, 0.5));
+    CHECK_THAT (getPlainValue (restored, ParamIDs::threshold), WithinAbs (-42.0, 0.01));
+    CHECK (restored.getLengthBars() == 32);
+    CHECK (getPlainValue (restored, ParamIDs::pingPong) > 0.5f);
+    CHECK (restored.getCurve() == edited);
+    CHECK (restored.getCurveVersion() > versionBefore);
+}
+
+TEST_CASE ("A v0.1 session loads cleanly", "[processor]")
+{
+    // v0.1 saved Feedback and had no curve
+    juce::XmlElement xml ("OCDelayState");
+    for (const auto& [id, value] : { std::pair { "delayTime", 1234.0 }, std::pair { "feedback", 80.0 }, std::pair { "mix", 25.0 } })
     {
-        constexpr double sampleRate = 48000.0;
-        constexpr int numSamples = 48000;
-
-        REQUIRE (plugin.setBusesLayout (makeLayout (input, output)));
-        setPlainValue (plugin, ParamIDs::delayTime, 10.0f);
-        setPlainValue (plugin, ParamIDs::feedback, 0.0f);
-        setPlainValue (plugin, ParamIDs::mix, 100.0f);
-        plugin.prepareToPlay (sampleRate, numSamples);
-
-        juce::AudioBuffer<float> buffer (output.size(), numSamples);
-        buffer.clear();
-        buffer.setSample (0, 0, 1.0f);
-
-        juce::MidiBuffer midi;
-        plugin.processBlock (buffer, midi);
-        return buffer;
+        auto* param = xml.createNewChildElement ("PARAM");
+        param->setAttribute ("id", id);
+        param->setAttribute ("value", value);
     }
+
+    juce::MemoryBlock state;
+    juce::AudioProcessor::copyXmlToBinary (xml, state);
+
+    PluginProcessor restored;
+    auto edited = restored.getCurve();
+    edited.addPoint (0.5f, 0.2f);
+    restored.updateCurve (edited);
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+
+    CHECK_THAT (getPlainValue (restored, ParamIDs::delayTime), WithinAbs (1234.0, 0.5));
+    CHECK_THAT (getPlainValue (restored, ParamIDs::mix), WithinAbs (25.0, 0.01));
+    CHECK (restored.getCurve() == VolumeCurve {});
 }
 
-TEST_CASE ("Mono input on a stereo output delays both sides", "[processor]")
+TEST_CASE ("Garbage state is ignored", "[processor]")
 {
     PluginProcessor plugin;
-    auto output = processImpulse (plugin, juce::AudioChannelSet::mono(), juce::AudioChannelSet::stereo());
+    const char garbage[] = "not a valid state";
+    plugin.setStateInformation (garbage, (int) sizeof (garbage));
 
-    CHECK_THAT (output.getSample (0, 480), Catch::Matchers::WithinAbs (1.0, 1.0e-4));
-    CHECK_THAT (output.getSample (1, 480), Catch::Matchers::WithinAbs (1.0, 1.0e-4));
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), WithinAbs (500.0, 0.01));
 }
 
-TEST_CASE ("Mono to mono layout processes a single channel", "[processor]")
+//==============================================================================
+TEST_CASE ("A hit repeats at the slice length", "[processor]")
 {
     PluginProcessor plugin;
-    auto output = processImpulse (plugin, juce::AudioChannelSet::mono(), juce::AudioChannelSet::mono());
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::delayTime, 250.0f); // 12000 samples
+
+    const auto output = processStereoHit (plugin, 40000);
+
+    // 100% wet: the original is silent, then each repeat replays the burst one slice later
+    CHECK_THAT (output.getSample (0, 1050), WithinAbs (0.0, 1.0e-6));
+    CHECK_THAT (output.getSample (0, 13050), WithinAbs (0.5, 1.0e-4));
+    CHECK_THAT (output.getSample (1, 25050), WithinAbs (0.5, 1.0e-4));
+}
+
+TEST_CASE ("Synced slice uses the note division at the host tempo", "[processor]")
+{
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::sync, 1.0f);
+    setPlainValue (plugin, ParamIDs::division, (float) TempoSync::getDivisionNames().indexOf ("1/16")); // 125 ms
+
+    const auto output = processStereoHit (plugin, 20000);
+
+    CHECK_THAT (output.getSample (0, 7050), WithinAbs (0.5, 1.0e-4));
+    CHECK_THAT (plugin.getSliceMs(), WithinAbs (125.0, 0.01));
+}
+
+TEST_CASE ("Repeats stop exactly at the end of Length", "[processor]")
+{
+    // 4 bars at 120 BPM = 8 s from the voice origin (the hit minus the pre-roll)
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::length, 0.0f); // 4 bars
+    setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000 samples
+
+    constexpr int hit = 1000;
+    constexpr int lengthSamples = 8 * 48000;
+    constexpr int end = hit - kPreRollSamples + lengthSamples;
+    const auto output = processStereoHit (plugin, end + 20000, hit);
+
+    // The last repeat starts one slice before the end; the next would start on the end
+    CHECK_THAT (output.getSample (0, end - 6000 + kPreRollSamples + 50), WithinAbs (0.5, 1.0e-4));
+    CHECK (juce::exactlyEqual (output.getMagnitude (0, end, output.getNumSamples() - end), 0.0f));
+}
+
+TEST_CASE ("Mono input on a stereo output repeats on both sides", "[processor]")
+{
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::delayTime, 250.0f);
+
+    const auto output = processHit (plugin, juce::AudioChannelSet::mono(), juce::AudioChannelSet::stereo(), 20000);
+
+    CHECK_THAT (output.getSample (0, 13050), WithinAbs (0.5, 1.0e-4));
+    CHECK_THAT (output.getSample (1, 13050), WithinAbs (0.5, 1.0e-4));
+}
+
+TEST_CASE ("Mono to mono layout repeats a single channel", "[processor]")
+{
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::delayTime, 250.0f);
+
+    const auto mono = juce::AudioChannelSet::mono();
+    const auto output = processHit (plugin, mono, mono, 20000);
 
     REQUIRE (output.getNumChannels() == 1);
-    CHECK_THAT (output.getSample (0, 480), Catch::Matchers::WithinAbs (1.0, 1.0e-4));
+    CHECK_THAT (output.getSample (0, 13050), WithinAbs (0.5, 1.0e-4));
 }
 
-TEST_CASE ("Tail length covers the decaying repeats", "[processor]")
+TEST_CASE ("Tail length is Length at the host tempo", "[processor]")
 {
     PluginProcessor plugin;
+    CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (16.0, 1.0e-6)); // 8 bars at 120 BPM
 
-    setPlainValue (plugin, ParamIDs::delayTime, 500.0f);
-    setPlainValue (plugin, ParamIDs::feedback, 0.0f);
-    CHECK_THAT (plugin.getTailLengthSeconds(), Catch::Matchers::WithinAbs (0.5, 0.01));
-
-    // 50% feedback needs 10 repeats to fall 60 dB, plus the first repeat
-    setPlainValue (plugin, ParamIDs::feedback, 50.0f);
-    CHECK_THAT (plugin.getTailLengthSeconds(), Catch::Matchers::WithinAbs (0.5 * 11.0, 0.01));
+    setPlainValue (plugin, ParamIDs::length, 3.0f);
+    CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (64.0, 1.0e-6)); // 32 bars
 }
 
-TEST_CASE ("Sync and Division have PRD defaults", "[processor]")
+TEST_CASE ("Playhead reports progress through the tail", "[processor]")
 {
     PluginProcessor plugin;
-    CHECK (getPlainValue (plugin, ParamIDs::sync) < 0.5f);
-    CHECK (plugin.getAPVTS().getParameter (ParamIDs::division.getParamID())->getCurrentValueAsText() == "1/4");
-}
+    CHECK (plugin.getPlayheadPosition() < 0.0f);
 
-TEST_CASE ("Sync uses the note division at the host tempo", "[processor]")
-{
-    // No playhead in tests, so the fallback tempo (120 BPM) applies: 1/16 = 125 ms = 6000 samples
-    PluginProcessor plugin;
-    setPlainValue (plugin, ParamIDs::sync, 1.0f);
-    auto* division = plugin.getAPVTS().getParameter (ParamIDs::division.getParamID());
-    division->setValueNotifyingHost (division->convertTo0to1 ((float) TempoSync::getDivisionNames().indexOf ("1/16")));
+    processStereoHit (plugin, 48000);
 
-    REQUIRE (plugin.setBusesLayout (makeLayout (juce::AudioChannelSet::stereo(), juce::AudioChannelSet::stereo())));
-    setPlainValue (plugin, ParamIDs::feedback, 0.0f);
-    setPlainValue (plugin, ParamIDs::mix, 100.0f);
-    plugin.prepareToPlay (48000.0, 12000);
-
-    juce::AudioBuffer<float> buffer (2, 12000);
-    buffer.clear();
-    buffer.setSample (0, 0, 1.0f);
-    juce::MidiBuffer midi;
-    plugin.processBlock (buffer, midi);
-
-    CHECK_THAT (buffer.getSample (0, 6000), Catch::Matchers::WithinAbs (1.0, 1.0e-4));
-    CHECK_THAT (plugin.getTailLengthSeconds(), Catch::Matchers::WithinAbs (0.125, 0.001));
+    // About 1 s into an 8-bar (16 s) tail
+    CHECK_THAT (plugin.getPlayheadPosition(), WithinAbs (1.0 / 16.0, 0.01));
 }

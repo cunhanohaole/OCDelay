@@ -1,6 +1,8 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "ui/CurveEditor.h"
+#include "ui/LengthSelector.h"
 #include "ui/OCDelayLookAndFeel.h"
 #include "ui/ParameterKnob.h"
 
@@ -29,10 +31,13 @@ private:
     // Declared first so it outlives every component that uses it
     OCDelayLookAndFeel lookAndFeel;
 
-    // Delay Time (ms) and Division share one slot; Sync decides which is shown
+    CurveEditor curveEditor;
+
+    // Slice (ms) and Division share one slot; Sync decides which is shown
     ParameterKnob delayTimeKnob;
     ParameterKnob divisionKnob;
-    ParameterKnob feedbackKnob;
+    LengthSelector lengthSelector;
+    ParameterKnob thresholdKnob;
     ParameterKnob mixKnob;
 
     juce::ToggleButton syncButton { "Sync" };

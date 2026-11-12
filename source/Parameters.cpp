@@ -13,6 +13,11 @@ namespace
         return juce::String (juce::roundToInt (value)) + " %";
     }
 
+    juce::String formatDecibels (float value, int /*maximumStringLength*/)
+    {
+        return juce::String (juce::roundToInt (value)) + " dB";
+    }
+
     // Accepts "500", "500 ms" or "35 %" when the user types into a value box
     float parseLeadingNumber (const juce::String& text)
     {
@@ -26,7 +31,7 @@ namespace
 
         return std::make_unique<juce::AudioParameterFloat> (
             ParamIDs::delayTime,
-            "Delay Time",
+            "Slice",
             range,
             ParamRanges::delayTimeDefaultMs,
             juce::AudioParameterFloatAttributes()
@@ -52,16 +57,47 @@ namespace
     }
 }
 
+namespace
+{
+    std::unique_ptr<juce::AudioParameterChoice> makeLengthParameter()
+    {
+        juce::StringArray choices;
+        for (const auto bars : ParamRanges::lengthBarsOptions)
+            choices.add (juce::String (bars));
+
+        return std::make_unique<juce::AudioParameterChoice> (
+            ParamIDs::length,
+            "Length",
+            choices,
+            ParamRanges::lengthDefaultIndex,
+            juce::AudioParameterChoiceAttributes().withLabel ("bars"));
+    }
+
+    std::unique_ptr<juce::AudioParameterFloat> makeThresholdParameter()
+    {
+        return std::make_unique<juce::AudioParameterFloat> (
+            ParamIDs::threshold,
+            "Threshold",
+            juce::NormalisableRange<float> { ParamRanges::thresholdMinDb, ParamRanges::thresholdMaxDb },
+            ParamRanges::thresholdDefaultDb,
+            juce::AudioParameterFloatAttributes()
+                .withLabel ("dB")
+                .withStringFromValueFunction (formatDecibels)
+                .withValueFromStringFunction (parseLeadingNumber));
+    }
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     layout.add (makeDelayTimeParameter());
-    layout.add (makePercentParameter (ParamIDs::feedback, "Feedback", ParamRanges::feedbackMaxPercent, ParamRanges::feedbackDefaultPercent));
     layout.add (makePercentParameter (ParamIDs::mix, "Mix", 100.0f, ParamRanges::mixDefaultPercent));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pingPong, "Ping-Pong", ParamRanges::pingPongDefault));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::sync, "Sync", ParamRanges::syncDefault));
     layout.add (std::make_unique<juce::AudioParameterChoice> (ParamIDs::division, "Division", TempoSync::getDivisionNames(), TempoSync::defaultDivisionIndex));
+    layout.add (makeLengthParameter());
+    layout.add (makeThresholdParameter());
 
     return layout;
 }
