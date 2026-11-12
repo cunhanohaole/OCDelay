@@ -1,4 +1,5 @@
 #include "CurveEditor.h"
+#include "../dsp/PitchMapping.h"
 
 namespace
 {
@@ -13,13 +14,13 @@ namespace
 }
 
 CurveEditor::CurveEditor (PluginProcessor& p)
-    : processor (p)
+    : processor (p),
+      toolbar (p.getAPVTS())
 {
-    snapButton.setToggleState (true, juce::dontSendNotification);
-    snapButton.setTooltip ("Snap points to the beat grid");
-    addAndMakeVisible (snapButton);
+    toolbar.onTargetChange = [this] { showTargetCurve(); };
+    addAndMakeVisible (toolbar);
 
-    setTitle ("Volume curve"); // accessibility name
+    setTitle ("Curves"); // accessibility name
     timerCallback(); // pick up the processor's curve before the first paint
     startTimerHz (kRefreshHz);
 }
@@ -27,8 +28,7 @@ CurveEditor::CurveEditor (PluginProcessor& p)
 void CurveEditor::resized()
 {
     auto area = getLocalBounds();
-    auto topBar = area.removeFromTop (proportionOfHeight (0.12f));
-    snapButton.setBounds (topBar.removeFromRight (proportionOfWidth (0.12f)));
+    toolbar.setBounds (area.removeFromTop (proportionOfHeight (0.12f)));
 
     plotArea = area.reduced (proportionOfWidth (0.015f), proportionOfHeight (0.03f)).toFloat();
 }
@@ -40,6 +40,7 @@ void CurveEditor::paint (juce::Graphics& g)
     g.fillRoundedRectangle (plotArea, 4.0f);
 
     drawGrid (g);
+    drawPitchLabels (g);
     drawRepeatMarkers (g);
     drawCurve (g);
     drawPoints (g);
@@ -64,8 +65,36 @@ void CurveEditor::drawGrid (juce::Graphics& g) const
         g.drawVerticalLine (juce::roundToInt (x), plotArea.getY(), plotArea.getBottom());
     }
 
-    g.setColour (juce::Colours::white.withAlpha (0.06f));
-    g.drawHorizontalLine (juce::roundToInt (plotArea.getCentreY()), plotArea.getX(), plotArea.getRight());
+    // Volume: a 50 % guide. Pitch: the "no change" line, a little brighter.
+    const auto isPitch = toolbar.getTarget() == CurveTarget::pitch;
+    const auto guideY = isPitch ? toScreen (0.0f, getBaseline()).y : plotArea.getCentreY();
+    g.setColour (juce::Colours::white.withAlpha (isPitch ? 0.25f : 0.06f));
+    g.drawHorizontalLine (juce::roundToInt (guideY), plotArea.getX(), plotArea.getRight());
+}
+
+// Semitone values at the top, bottom and "no change" line
+void CurveEditor::drawPitchLabels (juce::Graphics& g) const
+{
+    if (toolbar.getTarget() != CurveTarget::pitch)
+        return;
+
+    const auto range = juce::roundToInt (processor.getPitchRangeSemitones());
+    const auto bipolar = processor.isPitchBipolar();
+    const auto labelArea = plotArea.reduced (4.0f, 2.0f);
+    const auto labelHeight = 14.0f;
+
+    g.setColour (juce::Colours::white.withAlpha (0.5f));
+    g.setFont (12.0f);
+    g.drawText ("+" + juce::String (range) + " st", labelArea.withHeight (labelHeight), juce::Justification::topLeft);
+    g.drawText (bipolar ? juce::String::fromUTF8 ("\xe2\x88\x92") + juce::String (range) + " st" : "0 st",
+        labelArea.withTrimmedTop (labelArea.getHeight() - labelHeight), juce::Justification::bottomLeft);
+
+    if (bipolar)
+    {
+        // Right of the first point, just above the "no change" line
+        const auto zeroArea = labelArea.withTrimmedLeft (kPointHitRadius + 4.0f).withHeight (labelHeight);
+        g.drawText ("0 st", zeroArea.withY (plotArea.getCentreY() - labelHeight - 1.0f), juce::Justification::left);
+    }
 }
 
 void CurveEditor::drawRepeatMarkers (juce::Graphics& g) const
@@ -97,9 +126,10 @@ void CurveEditor::drawCurve (juce::Graphics& g) const
 
     const auto colour = getLookAndFeel().findColour (juce::Slider::thumbColourId);
 
+    const auto baselineY = toScreen (0.0f, getBaseline()).y;
     juce::Path fill (path);
-    fill.lineTo (plotArea.getBottomRight());
-    fill.lineTo (plotArea.getBottomLeft());
+    fill.lineTo (plotArea.getRight(), baselineY);
+    fill.lineTo (plotArea.getX(), baselineY);
     fill.closeSubPath();
     g.setColour (colour.withAlpha (0.12f));
     g.fillPath (fill);
@@ -169,7 +199,7 @@ void CurveEditor::mouseDrag (const juce::MouseEvent& event)
 {
     if (draggedPoint >= 0)
     {
-        curve.movePoint (draggedPoint, snapX (toCurveX (event.position.x)), toCurveY (event.position.y));
+        curve.movePoint (draggedPoint, snapX (toCurveX (event.position.x)), snapY (toCurveY (event.position.y)));
         commitCurve();
     }
     else if (bentSegment >= 0)
@@ -190,7 +220,7 @@ void CurveEditor::mouseDoubleClick (const juce::MouseEvent& event)
     if (!plotArea.contains (event.position) || findPointAt (event.position) >= 0)
         return;
 
-    if (curve.addPoint (snapX (toCurveX (event.position.x)), toCurveY (event.position.y)) >= 0)
+    if (curve.addPoint (snapX (toCurveX (event.position.x)), snapY (toCurveY (event.position.y))) >= 0)
         commitCurve();
 }
 
@@ -208,7 +238,16 @@ void CurveEditor::bendSegment (float mouseY)
 
 void CurveEditor::commitCurve()
 {
-    processor.updateCurve (curve);
+    processor.updateCurve (curve, toolbar.getTarget());
+    shownCurveVersion = processor.getCurveVersion();
+    repaint();
+}
+
+void CurveEditor::showTargetCurve()
+{
+    draggedPoint = -1;
+    bentSegment = -1;
+    curve = processor.getCurve (toolbar.getTarget());
     shownCurveVersion = processor.getCurveVersion();
     repaint();
 }
@@ -219,21 +258,24 @@ void CurveEditor::timerCallback()
     // The curve can be replaced from outside, e.g. by loading a session
     if (processor.getCurveVersion() != shownCurveVersion && draggedPoint < 0 && bentSegment < 0)
     {
-        curve = processor.getCurve();
-        shownCurveVersion = processor.getCurveVersion();
-        repaint();
+        showTargetCurve();
     }
 
     const auto playhead = processor.getPlayheadPosition();
     const auto sliceFraction = getSliceFraction();
     const auto totalBeats = getTotalBeats();
+    const auto pitchRange = processor.getPitchRangeSemitones();
+    const auto bipolar = processor.isPitchBipolar();
 
     if (!juce::exactlyEqual (playhead, shownPlayhead) || !juce::exactlyEqual (sliceFraction, shownSliceFraction)
-        || !juce::exactlyEqual (totalBeats, shownTotalBeats))
+        || !juce::exactlyEqual (totalBeats, shownTotalBeats) || !juce::exactlyEqual (pitchRange, shownPitchRange)
+        || bipolar != shownBipolar)
     {
         shownPlayhead = playhead;
         shownSliceFraction = sliceFraction;
         shownTotalBeats = totalBeats;
+        shownPitchRange = pitchRange;
+        shownBipolar = bipolar;
         repaint();
     }
 }
@@ -256,11 +298,31 @@ float CurveEditor::toCurveY (float screenY) const
 
 float CurveEditor::snapX (float x) const
 {
-    if (!snapButton.getToggleState())
+    if (!toolbar.isSnapOn())
         return x;
 
     const auto totalBeats = getTotalBeats();
     return std::round (x * totalBeats) / totalBeats;
+}
+
+// Pitch tab only: whole semitones at the current Range and Bipolar setting
+float CurveEditor::snapY (float y) const
+{
+    if (!toolbar.isSnapOn() || toolbar.getTarget() != CurveTarget::pitch)
+        return y;
+
+    const auto range = processor.getPitchRangeSemitones();
+    const auto bipolar = processor.isPitchBipolar();
+    const auto semitones = std::round (PitchMapping::toSemitones (y, range, bipolar));
+    return juce::jlimit (0.0f, 1.0f, PitchMapping::toCurveValue (semitones, range, bipolar));
+}
+
+float CurveEditor::getBaseline() const
+{
+    if (toolbar.getTarget() == CurveTarget::pitch && processor.isPitchBipolar())
+        return 0.5f;
+
+    return 0.0f;
 }
 
 int CurveEditor::findPointAt (juce::Point<float> position) const

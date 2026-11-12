@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <dsp/RepeaterEngine.h>
 #include <memory>
@@ -21,6 +22,9 @@ namespace
         int lengthSamples = kLength;
         float mix = 1.0f;
         bool pingPong = false;
+        float pingPongWidth = 1.0f;
+        float pitchRange = 12.0f;
+        bool pitchBipolar = false;
         int numChannels = 2;
     };
 
@@ -36,19 +40,23 @@ namespace
         engine->setThresholdDb (-30.0f);
         engine->setMix (settings.mix);
         engine->setPingPong (settings.pingPong);
+        engine->setPingPongWidth (settings.pingPongWidth);
+        engine->setPitchRange (settings.pitchRange, settings.pitchBipolar);
         engine->prepare (kSampleRate, kBlockSize, settings.numChannels, kMaxSliceSeconds);
         return engine;
     }
 
-    void processInBlocks (RepeaterEngine& engine, juce::AudioBuffer<float>& buffer, const std::vector<float>& curve = flatCurve)
+    void processInBlocks (RepeaterEngine& engine, juce::AudioBuffer<float>& buffer, const std::vector<float>& curve = flatCurve, const std::vector<float>& pitchCurve = {})
     {
         for (int start = 0; start < buffer.getNumSamples(); start += kBlockSize)
         {
             const auto length = juce::jmin (kBlockSize, buffer.getNumSamples() - start);
             juce::AudioBuffer<float> block (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, length);
-            engine.process (block, curve);
+            engine.process (block, curve, pitchCurve);
         }
     }
+
+    std::vector<float> makeFlatPitch (float value) { return std::vector<float> (2048, value); }
 
     juce::AudioBuffer<float> makeSilence (int numChannels, int numSamples)
     {
@@ -266,4 +274,97 @@ TEST_CASE ("The playhead reports the active tail position", "[RepeaterEngine]")
     auto rest = makeSilence (2, kLength / 2);
     processInBlocks (*engine, rest);
     CHECK_THAT (engine->getPlayheadPosition(), WithinAbs (-1.0, 1.0e-6));
+}
+
+TEST_CASE ("Ping-pong Width narrows the far side", "[RepeaterEngine]")
+{
+    const auto width = GENERATE (0.0f, 0.5f);
+    auto engine = makeEngine ({ .pingPong = true, .pingPongWidth = width });
+    auto buffer = makeImpulse (2, repeatSample (3), 0);
+
+    processInBlocks (*engine, buffer);
+
+    // Repeat 1 is on the left; the right gets the mono sum (0.5) scaled by 1 - width
+    CHECK_THAT (buffer.getSample (0, repeatSample (1)), WithinAbs (0.5, 1.0e-6));
+    CHECK_THAT (buffer.getSample (1, repeatSample (1)), WithinAbs (0.5 * (1.0 - width), 1.0e-6));
+    CHECK_THAT (buffer.getSample (0, repeatSample (2)), WithinAbs (0.5 * (1.0 - width), 1.0e-6));
+    CHECK_THAT (buffer.getSample (1, repeatSample (2)), WithinAbs (0.5, 1.0e-6));
+}
+
+TEST_CASE ("Pitch up an octave plays each repeat at double speed", "[RepeaterEngine]")
+{
+    auto engine = makeEngine ({});
+    const auto preRoll = engine->getPreRollSamples();
+    auto buffer = makeImpulse (2, repeatSample (5));
+
+    processInBlocks (*engine, buffer, flatCurve, makeFlatPitch (1.0f)); // unipolar top = +12 st
+
+    // The hit sits preRoll samples into the slice, so at double speed it comes preRoll / 2 in,
+    // still inside the repeat's fade-in
+    const auto fadeInGain = (double) (preRoll / 2) / (double) engine->getEdgeFadeSamples();
+    for (int k = 1; k <= 3; ++k)
+    {
+        const auto repeatStart = repeatSample (k) - preRoll;
+        CHECK_THAT (buffer.getSample (0, repeatStart + preRoll / 2), WithinAbs (fadeInGain, 1.0e-6));
+        CHECK_THAT (maxAbsInRange (buffer, 0, repeatStart + preRoll / 2 + 3, repeatSample (k + 1) - preRoll), WithinAbs (0.0, 1.0e-6));
+    }
+}
+
+TEST_CASE ("Bipolar pitch: the middle is no change, the bottom is down by Range", "[RepeaterEngine]")
+{
+    auto engine = makeEngine ({ .pitchBipolar = true });
+    const auto preRoll = engine->getPreRollSamples();
+
+    SECTION ("middle")
+    {
+        auto buffer = makeImpulse (2, repeatSample (3));
+        processInBlocks (*engine, buffer, flatCurve, makeFlatPitch (0.5f));
+        CHECK_THAT (buffer.getSample (0, repeatSample (1)), WithinAbs (1.0, 1.0e-6));
+        CHECK_THAT (buffer.getSample (0, repeatSample (2)), WithinAbs (1.0, 1.0e-6));
+    }
+
+    SECTION ("bottom: an octave down, at half speed")
+    {
+        auto buffer = makeImpulse (2, repeatSample (3));
+        processInBlocks (*engine, buffer, flatCurve, makeFlatPitch (0.0f));
+        CHECK_THAT (buffer.getSample (0, repeatSample (1) + preRoll), WithinAbs (1.0, 1.0e-6));
+        CHECK_THAT (buffer.getSample (0, repeatSample (1)), WithinAbs (0.0, 1.0e-6));
+    }
+}
+
+TEST_CASE ("Each repeat holds the pitch from where it starts", "[RepeaterEngine]")
+{
+    // A step from no change to +12 st halfway through the tail
+    std::vector<float> stepPitch (2048, 0.0f);
+    std::fill (stepPitch.begin() + 1024, stepPitch.end(), 1.0f);
+
+    auto engine = makeEngine ({});
+    const auto preRoll = engine->getPreRollSamples();
+    auto buffer = makeImpulse (2, repeatSample (10));
+    processInBlocks (*engine, buffer, flatCurve, stepPitch);
+
+    // Repeat 4 starts at t = 0.4 (no change), repeat 6 at t = 0.6 (octave up)
+    CHECK_THAT (buffer.getSample (0, repeatSample (4)), WithinAbs (1.0, 1.0e-6));
+    const auto fadeInGain = (double) (preRoll / 2) / (double) engine->getEdgeFadeSamples();
+    CHECK_THAT (buffer.getSample (0, repeatSample (6) - preRoll + preRoll / 2), WithinAbs (fadeInGain, 1.0e-6));
+}
+
+TEST_CASE ("Sped-up repeats fade out where their audio ends", "[RepeaterEngine]")
+{
+    auto engine = makeEngine ({});
+    auto buffer = makeSilence (2, kHitSample + kLength);
+
+    constexpr float kFrequency = 440.0f;
+    constexpr float kAmplitude = 0.5f;
+    for (int i = kHitSample; i < buffer.getNumSamples(); ++i)
+        for (int channel = 0; channel < 2; ++channel)
+            buffer.setSample (channel, i, kAmplitude * std::sin (juce::MathConstants<float>::twoPi * kFrequency * (float) (i - kHitSample) / (float) kSampleRate));
+
+    processInBlocks (*engine, buffer, flatCurve, makeFlatPitch (1.0f));
+
+    // An octave up doubles the sine's slope; the fades add at most one fade step
+    const auto naturalStep = 2.0f * juce::MathConstants<float>::twoPi * kFrequency / (float) kSampleRate * kAmplitude;
+    const auto fadeStep = kAmplitude / (float) engine->getEdgeFadeSamples();
+    CHECK (maxAbsInRange (buffer, 0, 0, buffer.getNumSamples()) > 0.4f);
+    CHECK (maxSampleStep (buffer, 0) < naturalStep + fadeStep + 1.0e-3f);
 }

@@ -1,14 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <curve/TripleBuffer.h>
-#include <curve/VolumeCurve.h>
+#include <curve/EnvelopeCurve.h>
 #include <thread>
 
 using Catch::Matchers::WithinAbs;
 
-TEST_CASE ("Default curve is a straight ramp down", "[VolumeCurve]")
+TEST_CASE ("Default curve is a straight ramp down", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
+    EnvelopeCurve curve;
 
     REQUIRE (curve.getNumPoints() == 2);
     CHECK_THAT (curve.evaluate (0.0f), WithinAbs (1.0, 1.0e-6));
@@ -16,9 +16,9 @@ TEST_CASE ("Default curve is a straight ramp down", "[VolumeCurve]")
     CHECK_THAT (curve.evaluate (1.0f), WithinAbs (0.0, 1.0e-6));
 }
 
-TEST_CASE ("Added points are sorted and shape the curve", "[VolumeCurve]")
+TEST_CASE ("Added points are sorted and shape the curve", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
+    EnvelopeCurve curve;
     CHECK (curve.addPoint (0.5f, 1.0f) == 1);
     CHECK (curve.addPoint (0.25f, 0.0f) == 1);
 
@@ -27,9 +27,9 @@ TEST_CASE ("Added points are sorted and shape the curve", "[VolumeCurve]")
     CHECK_THAT (curve.evaluate (0.375f), WithinAbs (0.5, 1.0e-6));
 }
 
-TEST_CASE ("Points stay between their neighbours while moving", "[VolumeCurve]")
+TEST_CASE ("Points stay between their neighbours while moving", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
+    EnvelopeCurve curve;
     curve.addPoint (0.3f, 0.5f);
     curve.addPoint (0.6f, 0.5f);
 
@@ -38,9 +38,9 @@ TEST_CASE ("Points stay between their neighbours while moving", "[VolumeCurve]")
     CHECK_THAT (curve.getPoints()[1].y, WithinAbs (1.0, 1.0e-6));
 }
 
-TEST_CASE ("End points only move vertically and can't be removed", "[VolumeCurve]")
+TEST_CASE ("End points only move vertically and can't be removed", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
+    EnvelopeCurve curve;
     curve.movePoint (0, 0.5f, 0.4f);
     curve.movePoint (1, 0.5f, 0.2f);
 
@@ -55,18 +55,18 @@ TEST_CASE ("End points only move vertically and can't be removed", "[VolumeCurve
     CHECK (curve.getNumPoints() == 2);
 }
 
-TEST_CASE ("Curve holds at most kMaxPoints", "[VolumeCurve]")
+TEST_CASE ("Curve holds at most kMaxPoints", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
-    for (size_t i = 2; i < VolumeCurve::kMaxPoints; ++i)
+    EnvelopeCurve curve;
+    for (size_t i = 2; i < EnvelopeCurve::kMaxPoints; ++i)
         REQUIRE (curve.addPoint (0.5f, 0.5f) >= 0);
 
     CHECK (curve.addPoint (0.5f, 0.5f) == -1);
 }
 
-TEST_CASE ("Curvature bends a segment", "[VolumeCurve]")
+TEST_CASE ("Curvature bends a segment", "[EnvelopeCurve]")
 {
-    VolumeCurve curve; // 1 -> 0
+    EnvelopeCurve curve; // 1 -> 0
 
     curve.setCurvature (0, 1.0f);
     CHECK (curve.evaluate (0.5f) > 0.9f); // holds near full volume, then drops
@@ -75,12 +75,12 @@ TEST_CASE ("Curvature bends a segment", "[VolumeCurve]")
     CHECK (curve.evaluate (0.5f) < 0.1f); // drops early
 
     curve.setCurvature (0, 5.0f);
-    CHECK_THAT (curve.getPoints()[0].curvature, WithinAbs (VolumeCurve::kMaxCurvature, 1.0e-6));
+    CHECK_THAT (curve.getPoints()[0].curvature, WithinAbs (EnvelopeCurve::kMaxCurvature, 1.0e-6));
 }
 
-TEST_CASE ("fillTable samples the whole curve", "[VolumeCurve]")
+TEST_CASE ("fillTable samples the whole curve", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
+    EnvelopeCurve curve;
     std::array<float, 5> table {};
     curve.fillTable (table);
 
@@ -89,27 +89,27 @@ TEST_CASE ("fillTable samples the whole curve", "[VolumeCurve]")
     CHECK_THAT (table[4], WithinAbs (0.0, 1.0e-6));
 }
 
-TEST_CASE ("Curve round-trips through a ValueTree", "[VolumeCurve]")
+TEST_CASE ("Curve round-trips through a ValueTree", "[EnvelopeCurve]")
 {
-    VolumeCurve curve;
+    EnvelopeCurve curve;
     curve.addPoint (0.4f, 0.8f);
     curve.setCurvature (1, -0.5f);
 
-    CHECK (VolumeCurve::fromValueTree (curve.toValueTree()) == curve);
+    CHECK (EnvelopeCurve::fromValueTree (curve.toValueTree()) == curve);
 }
 
-TEST_CASE ("Invalid trees fall back to the default curve", "[VolumeCurve]")
+TEST_CASE ("Invalid trees fall back to the default curve", "[EnvelopeCurve]")
 {
-    const VolumeCurve defaultCurve;
-    CHECK (VolumeCurve::fromValueTree ({}) == defaultCurve);
-    CHECK (VolumeCurve::fromValueTree (juce::ValueTree { "Wrong" }) == defaultCurve);
+    const EnvelopeCurve defaultCurve;
+    CHECK (EnvelopeCurve::fromValueTree ({}) == defaultCurve);
+    CHECK (EnvelopeCurve::fromValueTree (juce::ValueTree { "Wrong" }) == defaultCurve);
 
     // A single point breaks the "at least two points, ends at 0 and 1" invariant
-    juce::ValueTree tree { VolumeCurve::treeType };
+    juce::ValueTree tree { EnvelopeCurve::treeType };
     juce::ValueTree point { "Point" };
     point.setProperty ("x", 0.5f, nullptr);
     tree.appendChild (point, nullptr);
-    CHECK (VolumeCurve::fromValueTree (tree) == defaultCurve);
+    CHECK (EnvelopeCurve::fromValueTree (tree) == defaultCurve);
 }
 
 TEST_CASE ("TripleBuffer hands the newest value to the reader", "[TripleBuffer]")

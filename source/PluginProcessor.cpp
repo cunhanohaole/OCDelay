@@ -7,6 +7,10 @@ namespace
 {
     const juce::Identifier stateTag { "OCDelayState" };
 
+    // The volume curve is saved as a bare "Curve" child (v0.2); the pitch curve is wrapped
+    // in this child so the two can be told apart
+    const juce::Identifier pitchCurveTag { "PitchCurve" };
+
     bool isMonoOrStereo (const juce::AudioChannelSet& set)
     {
         return set == juce::AudioChannelSet::mono() || set == juce::AudioChannelSet::stereo();
@@ -18,8 +22,7 @@ PluginProcessor::PluginProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, stateTag, createParameterLayout()),
-      curveTables (makeCurveTable (curve))
+      apvts (*this, nullptr, stateTag, createParameterLayout())
 {
     delayTimeMs = apvts.getRawParameterValue (ParamIDs::delayTime.getParamID());
     mixPercent = apvts.getRawParameterValue (ParamIDs::mix.getParamID());
@@ -28,10 +31,14 @@ PluginProcessor::PluginProcessor()
     division = apvts.getRawParameterValue (ParamIDs::division.getParamID());
     length = apvts.getRawParameterValue (ParamIDs::length.getParamID());
     threshold = apvts.getRawParameterValue (ParamIDs::threshold.getParamID());
+    pingPongWidth = apvts.getRawParameterValue (ParamIDs::pingPongWidth.getParamID());
+    pitchRange = apvts.getRawParameterValue (ParamIDs::pitchRange.getParamID());
+    pitchBipolar = apvts.getRawParameterValue (ParamIDs::pitchBipolar.getParamID());
 
     jassert (delayTimeMs != nullptr && mixPercent != nullptr
              && pingPong != nullptr && sync != nullptr && division != nullptr
-             && length != nullptr && threshold != nullptr);
+             && length != nullptr && threshold != nullptr && pingPongWidth != nullptr
+             && pitchRange != nullptr && pitchBipolar != nullptr);
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -126,7 +133,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     copyMonoInputToStereo (buffer);
     updateHostTiming();
     pushParametersToEngine();
-    repeaterEngine.process (buffer, curveTables.read());
+    repeaterEngine.process (buffer, volumeCurve.read(), pitchCurve.read());
     uiPlayhead.store (repeaterEngine.getPlayheadPosition());
 }
 
@@ -140,6 +147,8 @@ void PluginProcessor::pushParametersToEngine()
     repeaterEngine.setThresholdDb (threshold->load());
     repeaterEngine.setMix (mixPercent->load() / 100.0f);
     repeaterEngine.setPingPong (pingPong->load() >= 0.5f);
+    repeaterEngine.setPingPongWidth (pingPongWidth->load() / 100.0f);
+    repeaterEngine.setPitchRange (pitchRange->load(), pitchBipolar->load() >= 0.5f);
 }
 
 // Sync off: the Slice knob in ms. Sync on: the note division at the host tempo.
@@ -180,19 +189,20 @@ int PluginProcessor::getLengthBars() const
     return ParamRanges::lengthBarsOptions[(size_t) index];
 }
 
-void PluginProcessor::updateCurve (const VolumeCurve& newCurve)
+const EnvelopeCurve& PluginProcessor::getCurve (CurveTarget target) const
 {
-    curve = newCurve;
-    curve.fillTable (curveTables.getWriteBuffer());
-    curveTables.publish();
+    return target == CurveTarget::pitch ? pitchCurve.getCurve() : volumeCurve.getCurve();
+}
+
+void PluginProcessor::updateCurve (const EnvelopeCurve& newCurve, CurveTarget target)
+{
+    getSlot (target).update (newCurve);
     ++curveVersion;
 }
 
-PluginProcessor::CurveTable PluginProcessor::makeCurveTable (const VolumeCurve& source)
+CurveSlot& PluginProcessor::getSlot (CurveTarget target)
 {
-    CurveTable table {};
-    source.fillTable (table);
-    return table;
+    return target == CurveTarget::pitch ? pitchCurve : volumeCurve;
 }
 
 // Mono in, stereo out: both sides start from the same signal, so the plain delay is
@@ -215,19 +225,17 @@ juce::AudioProcessorEditor* PluginProcessor::createEditor()
 }
 
 //==============================================================================
-// Saved state = APVTS parameters plus the volume curve as a child tree
+// Saved state = APVTS parameters plus both curves as child trees
 void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    state.removeChild (state.getChildWithName (VolumeCurve::treeType), nullptr);
-    state.appendChild (curve.toValueTree(), nullptr);
+    appendCurveTrees (state);
 
     if (const auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
-// Hosts call this on the message thread, which is the only thread that edits the curve.
-// v0.1 sessions have no curve child and get the default curve.
+// Hosts call this on the message thread, which is the only thread that edits the curves.
 void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     const auto xml = getXmlFromBinary (data, sizeInBytes);
@@ -236,11 +244,33 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
         return;
 
     auto state = juce::ValueTree::fromXml (*xml);
-    const auto curveTree = state.getChildWithName (VolumeCurve::treeType);
-    state.removeChild (curveTree, nullptr);
-
+    restoreCurves (state);
     apvts.replaceState (state);
-    updateCurve (VolumeCurve::fromValueTree (curveTree));
+}
+
+void PluginProcessor::appendCurveTrees (juce::ValueTree& state) const
+{
+    state.removeChild (state.getChildWithName (EnvelopeCurve::treeType), nullptr);
+    state.removeChild (state.getChildWithName (pitchCurveTag), nullptr);
+
+    juce::ValueTree pitchTree { pitchCurveTag };
+    pitchTree.appendChild (pitchCurve.getCurve().toValueTree(), nullptr);
+
+    state.appendChild (volumeCurve.getCurve().toValueTree(), nullptr);
+    state.appendChild (pitchTree, nullptr);
+}
+
+// Takes the curve children out of state so APVTS only sees parameters.
+// Older sessions without a curve get the defaults.
+void PluginProcessor::restoreCurves (juce::ValueTree& state)
+{
+    const auto volumeTree = state.getChildWithName (EnvelopeCurve::treeType);
+    const auto pitchTree = state.getChildWithName (pitchCurveTag);
+    state.removeChild (volumeTree, nullptr);
+    state.removeChild (pitchTree, nullptr);
+
+    updateCurve (EnvelopeCurve::fromValueTree (volumeTree), CurveTarget::volume);
+    updateCurve (EnvelopeCurve::fromValueTree (pitchTree.getChildWithName (EnvelopeCurve::treeType), defaultPitchCurve()), CurveTarget::pitch);
 }
 
 //==============================================================================

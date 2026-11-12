@@ -40,7 +40,7 @@ namespace
 
     void useFlatCurve (PluginProcessor& plugin)
     {
-        VolumeCurve flat;
+        EnvelopeCurve flat;
         flat.movePoint (1, 1.0f, 1.0f);
         plugin.updateCurve (flat);
     }
@@ -99,6 +99,22 @@ TEST_CASE ("Parameters have PRD defaults", "[processor]")
     CHECK (getText (plugin, ParamIDs::division) == "1/4");
     CHECK (getText (plugin, ParamIDs::length) == "8");
     CHECK (plugin.getLengthBars() == 8);
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::pingPongWidth), WithinAbs (100.0, 0.01));
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::pitchRange), WithinAbs (12.0, 0.01));
+    CHECK (getPlainValue (plugin, ParamIDs::pitchBipolar) < 0.5f);
+    CHECK (plugin.getCurve (CurveTarget::pitch) == EnvelopeCurve::makeFlat (0.0f));
+}
+
+TEST_CASE ("Length offers 1 to 32 bars", "[processor]")
+{
+    PluginProcessor plugin;
+    const std::array expected { 1, 2, 4, 8, 16, 32 };
+
+    for (size_t i = 0; i < expected.size(); ++i)
+    {
+        setPlainValue (plugin, ParamIDs::length, (float) i);
+        CHECK (plugin.getLengthBars() == expected[i]);
+    }
 }
 
 TEST_CASE ("Feedback is retired", "[processor]")
@@ -117,6 +133,9 @@ TEST_CASE ("Parameter ranges match PRD", "[processor]")
     CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::mix.getParamID()).end, 100.0f));
     CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::threshold.getParamID()).start, -60.0f));
     CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::threshold.getParamID()).end, 0.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::pingPongWidth.getParamID()).end, 100.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::pitchRange.getParamID()).start, 1.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::pitchRange.getParamID()).end, 48.0f));
 }
 
 TEST_CASE ("Parameter text shows units", "[processor]")
@@ -126,6 +145,8 @@ TEST_CASE ("Parameter text shows units", "[processor]")
     CHECK (getText (plugin, ParamIDs::delayTime) == "500 ms");
     CHECK (getText (plugin, ParamIDs::mix) == "50 %");
     CHECK (getText (plugin, ParamIDs::threshold) == "-30 dB");
+    CHECK (getText (plugin, ParamIDs::pingPongWidth) == "100 %");
+    CHECK (getText (plugin, ParamIDs::pitchRange) == "12 st");
 }
 
 TEST_CASE ("Supported bus layouts", "[processor]")
@@ -149,7 +170,7 @@ TEST_CASE ("State round-trips parameters and the curve", "[processor]")
     PluginProcessor source;
     setPlainValue (source, ParamIDs::delayTime, 1234.0f);
     setPlainValue (source, ParamIDs::threshold, -42.0f);
-    setPlainValue (source, ParamIDs::length, 3.0f); // 32 bars
+    setPlainValue (source, ParamIDs::length, 5.0f); // 32 bars
     setPlainValue (source, ParamIDs::pingPong, 1.0f);
 
     auto edited = source.getCurve();
@@ -170,6 +191,30 @@ TEST_CASE ("State round-trips parameters and the curve", "[processor]")
     CHECK (getPlainValue (restored, ParamIDs::pingPong) > 0.5f);
     CHECK (restored.getCurve() == edited);
     CHECK (restored.getCurveVersion() > versionBefore);
+}
+
+TEST_CASE ("State keeps the volume and pitch curves apart", "[processor]")
+{
+    PluginProcessor source;
+    setPlainValue (source, ParamIDs::pitchRange, 24.0f);
+    setPlainValue (source, ParamIDs::pitchBipolar, 1.0f);
+    setPlainValue (source, ParamIDs::pingPongWidth, 40.0f);
+
+    auto pitch = EnvelopeCurve::makeFlat (0.5f);
+    pitch.addPoint (0.25f, 0.9f);
+    source.updateCurve (pitch, CurveTarget::pitch);
+
+    juce::MemoryBlock state;
+    source.getStateInformation (state);
+
+    PluginProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+
+    CHECK (restored.getCurve (CurveTarget::pitch) == pitch);
+    CHECK (restored.getCurve (CurveTarget::volume) == EnvelopeCurve {});
+    CHECK_THAT (getPlainValue (restored, ParamIDs::pitchRange), WithinAbs (24.0, 0.01));
+    CHECK (restored.isPitchBipolar());
+    CHECK_THAT (getPlainValue (restored, ParamIDs::pingPongWidth), WithinAbs (40.0, 0.01));
 }
 
 TEST_CASE ("A v0.1 session loads cleanly", "[processor]")
@@ -194,7 +239,8 @@ TEST_CASE ("A v0.1 session loads cleanly", "[processor]")
 
     CHECK_THAT (getPlainValue (restored, ParamIDs::delayTime), WithinAbs (1234.0, 0.5));
     CHECK_THAT (getPlainValue (restored, ParamIDs::mix), WithinAbs (25.0, 0.01));
-    CHECK (restored.getCurve() == VolumeCurve {});
+    CHECK (restored.getCurve() == EnvelopeCurve {});
+    CHECK (restored.getCurve (CurveTarget::pitch) == EnvelopeCurve::makeFlat (0.0f));
 }
 
 TEST_CASE ("Garbage state is ignored", "[processor]")
@@ -239,7 +285,7 @@ TEST_CASE ("Repeats stop exactly at the end of Length", "[processor]")
     // 4 bars at 120 BPM = 8 s from the voice origin (the hit minus the pre-roll)
     PluginProcessor plugin;
     useFlatCurve (plugin);
-    setPlainValue (plugin, ParamIDs::length, 0.0f); // 4 bars
+    setPlainValue (plugin, ParamIDs::length, 2.0f); // 4 bars
     setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000 samples
 
     constexpr int hit = 1000;
@@ -282,7 +328,7 @@ TEST_CASE ("Tail length is Length at the host tempo", "[processor]")
     PluginProcessor plugin;
     CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (16.0, 1.0e-6)); // 8 bars at 120 BPM
 
-    setPlainValue (plugin, ParamIDs::length, 3.0f);
+    setPlainValue (plugin, ParamIDs::length, 5.0f);
     CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (64.0, 1.0e-6)); // 32 bars
 }
 

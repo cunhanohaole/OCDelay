@@ -1,4 +1,4 @@
-#include "VolumeCurve.h"
+#include "EnvelopeCurve.h"
 
 namespace
 {
@@ -13,14 +13,21 @@ namespace
     }
 }
 
-const juce::Identifier VolumeCurve::treeType { "Curve" };
+const juce::Identifier EnvelopeCurve::treeType { "Curve" };
 
-VolumeCurve::VolumeCurve()
+EnvelopeCurve::EnvelopeCurve()
     : points { { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }
 {
 }
 
-int VolumeCurve::addPoint (float x, float y)
+EnvelopeCurve EnvelopeCurve::makeFlat (float y)
+{
+    EnvelopeCurve curve;
+    curve.points = { { 0.0f, clampUnit (y), 0.0f }, { 1.0f, clampUnit (y), 0.0f } };
+    return curve;
+}
+
+int EnvelopeCurve::addPoint (float x, float y)
 {
     if (points.size() >= kMaxPoints)
         return -1;
@@ -35,7 +42,7 @@ int VolumeCurve::addPoint (float x, float y)
     return (int) std::distance (points.begin(), inserted);
 }
 
-void VolumeCurve::movePoint (int index, float x, float y)
+void EnvelopeCurve::movePoint (int index, float x, float y)
 {
     if (!juce::isPositiveAndBelow (index, getNumPoints()))
         return;
@@ -51,7 +58,7 @@ void VolumeCurve::movePoint (int index, float x, float y)
     point.x = juce::jlimit (minX, maxX, x);
 }
 
-bool VolumeCurve::removePoint (int index)
+bool EnvelopeCurve::removePoint (int index)
 {
     if (!juce::isPositiveAndBelow (index, getNumPoints()) || isEndPoint (index))
         return false;
@@ -60,13 +67,13 @@ bool VolumeCurve::removePoint (int index)
     return true;
 }
 
-void VolumeCurve::setCurvature (int segmentIndex, float curvature)
+void EnvelopeCurve::setCurvature (int segmentIndex, float curvature)
 {
     if (juce::isPositiveAndBelow (segmentIndex, getNumPoints() - 1))
         points[(size_t) segmentIndex].curvature = juce::jlimit (-kMaxCurvature, kMaxCurvature, curvature);
 }
 
-float VolumeCurve::evaluate (float x) const
+float EnvelopeCurve::evaluate (float x) const
 {
     x = clampUnit (x);
 
@@ -83,7 +90,7 @@ float VolumeCurve::evaluate (float x) const
     return start.y + (end.y - start.y) * shapeSegment (t, start.curvature);
 }
 
-void VolumeCurve::fillTable (std::span<float> table) const
+void EnvelopeCurve::fillTable (std::span<float> table) const
 {
     if (table.empty())
         return;
@@ -94,7 +101,7 @@ void VolumeCurve::fillTable (std::span<float> table) const
         table[i] = evaluate ((float) i / lastIndex);
 }
 
-juce::ValueTree VolumeCurve::toValueTree() const
+juce::ValueTree EnvelopeCurve::toValueTree() const
 {
     juce::ValueTree tree { treeType };
 
@@ -110,9 +117,9 @@ juce::ValueTree VolumeCurve::toValueTree() const
     return tree;
 }
 
-VolumeCurve VolumeCurve::fromValueTree (const juce::ValueTree& tree)
+EnvelopeCurve EnvelopeCurve::fromValueTree (const juce::ValueTree& tree, const EnvelopeCurve& fallback)
 {
-    VolumeCurve curve;
+    auto curve = fallback;
 
     if (!tree.hasType (treeType))
         return curve;
@@ -137,7 +144,7 @@ VolumeCurve VolumeCurve::fromValueTree (const juce::ValueTree& tree)
 
 // Power curve: c = 0 is linear; positive c holds near the start value longer, negative c
 // moves towards the end value sooner
-float VolumeCurve::shapeSegment (float t, float curvature)
+float EnvelopeCurve::shapeSegment (float t, float curvature)
 {
     if (juce::approximatelyEqual (curvature, 0.0f))
         return t;
@@ -145,7 +152,7 @@ float VolumeCurve::shapeSegment (float t, float curvature)
     return std::pow (t, std::exp2 (3.0f * curvature));
 }
 
-bool VolumeCurve::isValid (const std::vector<CurvePoint>& candidate)
+bool EnvelopeCurve::isValid (const std::vector<CurvePoint>& candidate)
 {
     if (candidate.size() < 2)
         return false;
@@ -156,7 +163,7 @@ bool VolumeCurve::isValid (const std::vector<CurvePoint>& candidate)
     return std::is_sorted (candidate.begin(), candidate.end(), [] (const CurvePoint& a, const CurvePoint& b) { return a.x < b.x; });
 }
 
-bool VolumeCurve::isEndPoint (int index) const
+bool EnvelopeCurve::isEndPoint (int index) const
 {
     return index == 0 || index == getNumPoints() - 1;
 }

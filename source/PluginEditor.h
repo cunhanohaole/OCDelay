@@ -13,9 +13,9 @@
 class PluginEditor : public juce::AudioProcessorEditor
 {
 public:
-    // Fixed size for v0.1. Layout is proportional, so resizing can be enabled later.
-    static constexpr int kWidth = 640;
-    static constexpr int kHeight = 400;
+    // Fixed size for now. Layout is proportional, so resizing can be enabled later.
+    static constexpr int kWidth = 760;
+    static constexpr int kHeight = 460;
 
     explicit PluginEditor (PluginProcessor&);
     ~PluginEditor() override;
@@ -39,6 +39,7 @@ private:
     LengthSelector lengthSelector;
     ParameterKnob thresholdKnob;
     ParameterKnob mixKnob;
+    ParameterKnob widthKnob;
 
     juce::ToggleButton syncButton { "Sync" };
     juce::ToggleButton pingPongButton { "Ping-Pong" };
