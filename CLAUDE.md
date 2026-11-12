@@ -1,7 +1,7 @@
 # OCDelay
 
 ## What This Is
-A free, clean digital delay plugin (VST3) with optional ping-pong, for people who want precise control over their repeats. The spec is in `PRD.md` — build only what it lists, and read its "Future Direction" before making architectural choices.
+A free VST3 repeater for single-shot sounds: it captures a slice after a hit and repeats it for an exact number of bars, with a drawn volume curve. The spec is in `PRD.md` — build only what it lists.
 
 ## Tech Stack
 - **Framework:** JUCE 9 (git submodule in `JUCE/`), native JUCE UI with the default look-and-feel
@@ -26,8 +26,8 @@ Builds default to Debug. Use `--config Release` when judging CPU use or audio dr
 
 ## Architecture
 - `PluginProcessor` owns the APVTS and composes the DSP classes. It contains no raw DSP math.
-- Delay DSP lives in its own class(es) under `source/dsp/`, with no dependency on the editor or APVTS, so it can be unit-tested directly.
-- Keep per-repeat gain and maximum buffer length as explicit, replaceable inputs to the delay engine. A tail-length/curve system will replace feedback as the gain source later (see PRD).
+- DSP (trigger detection, capture, playback) lives in its own class(es) under `source/dsp/`, with no dependency on the editor or APVTS, so it can be unit-tested directly.
+- The volume curve is model data, separate from its editor component. The audio thread reads a lookup table rebuilt on the message thread and swapped in lock-free; it never touches the editable curve.
 - Define all parameters in one `createParameterLayout()` function, with IDs in a single constants header. Never rename a parameter ID once it ships.
 - The editor only reads and writes parameters through APVTS attachments. Deleting the editor must not affect the audio.
 - Plugin sources link through the `SharedCode` INTERFACE library so that `Tests` sees the same code.
@@ -46,8 +46,8 @@ Builds default to Debug. Use `--config Release` when judging CPU use or audio dr
 
 ## Realtime / DSP Rules
 - `processBlock` never allocates, locks, logs or does I/O. Allocate in `prepareToPlay`.
-- Smooth every audio-rate parameter (`juce::SmoothedValue`). Delay-time changes glide the read position with interpolation.
-- Enforce the feedback cap in the DSP itself, not only through the parameter range.
+- Smooth every audio-rate parameter (`juce::SmoothedValue`). Fade slice edges and restarts so nothing clicks.
+- Retired parameter IDs (e.g. `feedback`) are never reused.
 - Prefer `juce::dsp` building blocks before writing custom DSP.
 - Audio → UI goes through atomics polled by a `juce::Timer`. Never call UI code from the audio thread.
 
