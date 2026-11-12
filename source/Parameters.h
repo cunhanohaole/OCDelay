@@ -17,6 +17,10 @@ namespace ParamIDs
     inline const juce::ParameterID pingPongWidth { "pingPongWidth", 3 };
     inline const juce::ParameterID pitchRange { "pitchRange", 3 };
     inline const juce::ParameterID pitchBipolar { "pitchBipolar", 3 };
+    inline const juce::ParameterID freeRate { "freeRate", 4 };
+    inline const juce::ParameterID rate { "rate", 4 };
+    inline const juce::ParameterID rateDivision { "rateDivision", 4 };
+    inline const juce::ParameterID rateOverlap { "rateOverlap", 4 };
 }
 
 namespace ParamRanges
@@ -45,6 +49,10 @@ namespace ParamRanges
     inline constexpr float pitchRangeMaxSemitones = 48.0f;
     inline constexpr float pitchRangeDefaultSemitones = 12.0f;
     inline constexpr bool pitchBipolarDefault = false;
+
+    // Rate uses the same ms range and division list as Slice
+    inline constexpr bool freeRateDefault = false;
+    inline constexpr bool rateOverlapDefault = false;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

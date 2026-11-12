@@ -54,6 +54,7 @@ public:
     float getBeatsPerBar() const { return uiBeatsPerBar.load(); }
     float getPlayheadPosition() const { return uiPlayhead.load(); }
     float getSliceMs() const { return effectiveSliceMs.load(); }
+    float getRepeatIntervalMs() const { return effectiveIntervalMs.load(); } // Rate, or Slice when Free Rate is off
     int getLengthBars() const;
 
     // Capture buffers are sized for this. Synced slices can exceed the 2 s ms range:
@@ -63,6 +64,8 @@ public:
 private:
     void pushParametersToEngine();
     float computeSliceMs();
+    float computeRateMs();
+    bool isFreeRateOn() const { return freeRate->load() >= 0.5f; }
     double computeLengthSeconds (double bpm, double beatsPerBar) const;
     void updateHostTiming();
     static EnvelopeCurve defaultPitchCurve() { return EnvelopeCurve::makeFlat (0.0f); } // no change in unipolar mode
@@ -86,6 +89,10 @@ private:
     std::atomic<float>* pingPongWidth = nullptr;
     std::atomic<float>* pitchRange = nullptr;
     std::atomic<float>* pitchBipolar = nullptr;
+    std::atomic<float>* freeRate = nullptr;
+    std::atomic<float>* rateMs = nullptr;
+    std::atomic<float>* rateDivision = nullptr;
+    std::atomic<float>* rateOverlap = nullptr;
 
     // Audio thread only; keep the last values the host reported
     double hostBpm = TempoSync::fallbackBpm;
@@ -99,6 +106,7 @@ private:
     CurveSlot pitchCurve { defaultPitchCurve() };
     std::atomic<int> curveVersion { 0 };
     std::atomic<float> effectiveSliceMs { 500.0f }; // what the engine is using, for the UI
+    std::atomic<float> effectiveIntervalMs { 500.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

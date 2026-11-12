@@ -55,7 +55,7 @@ private:
     void drawPlayhead (juce::Graphics&) const;
 
     float getTotalBeats() const;
-    float getSliceFraction() const; // slice length as a fraction of Length
+    float getSliceFraction() const; // time between repeat starts as a fraction of Length
 
     PluginProcessor& processor;
     EnvelopeCurve curve; // local copy, kept in sync with the processor

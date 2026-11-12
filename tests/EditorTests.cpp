@@ -55,9 +55,10 @@ TEST_CASE ("Editor controls sit in the bottom strip, inside the window", "[edito
         const auto stripTop = bounds.getHeight() * 7 / 10;
         const auto controls = getControls (*editor);
 
-        // Slice, Division (hidden), Length, Threshold, Mix, Width, Sync, Ping-Pong
-        CHECK (controls.size() == 8);
-        CHECK (countVisible (controls) == 7);
+        // Slice, Division (hidden), Rate, Rate Division (hidden), Length, Threshold, Mix, Width,
+        // Sync, Free Rate, Overlap, Ping-Pong
+        CHECK (controls.size() == 12);
+        CHECK (countVisible (controls) == 10);
 
         for (auto* control : controls)
         {
@@ -158,5 +159,32 @@ TEST_CASE ("Pitch tab shows and edits the pitch curve", "[editor]")
 
         curveEditor->getToolbar().setTarget (CurveTarget::volume);
         CHECK (curveEditor->getCurve() == EnvelopeCurve {});
+    });
+}
+
+TEST_CASE ("Rate and Overlap are enabled only with Free Rate on", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* editor = plugin.getActiveEditor();
+
+        // Every Rate knob (ms and division) and the Overlap switch
+        auto rateControlsEnabled = [editor] {
+            juce::Array<bool> states;
+            for (auto* control : getControls (*editor))
+            {
+                if (auto* knob = dynamic_cast<ParameterKnob*> (control); knob != nullptr && knob->getSlider().getTitle() == "Rate")
+                    states.add (knob->isEnabled());
+                if (auto* button = dynamic_cast<juce::ToggleButton*> (control); button != nullptr && button->getButtonText() == "Overlap")
+                    states.add (button->isEnabled());
+            }
+            return states;
+        };
+
+        REQUIRE (rateControlsEnabled().size() == 3);
+        CHECK_FALSE (rateControlsEnabled().contains (true));
+
+        plugin.getAPVTS().getParameter (ParamIDs::freeRate.getParamID())->setValueNotifyingHost (1.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+        CHECK_FALSE (rateControlsEnabled().contains (false));
     });
 }
