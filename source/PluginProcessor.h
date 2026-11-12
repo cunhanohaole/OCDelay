@@ -1,10 +1,7 @@
 #pragma once
 
+#include "dsp/DelayEngine.h"
 #include <juce_audio_processors/juce_audio_processors.h>
-
-#if (MSVC)
-#include "ipps.h"
-#endif
 
 class PluginProcessor : public juce::AudioProcessor
 {
@@ -38,6 +35,23 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
+
+    // The delay buffer is sized for this; raise it when longer tails / bars mode arrive
+    static constexpr double kMaxDelaySeconds = 2.0;
+
 private:
+    void pushParametersToEngine();
+    void copyMonoInputToStereo (juce::AudioBuffer<float>& buffer) const;
+
+    juce::AudioProcessorValueTreeState apvts;
+    DelayEngine delayEngine;
+
+    // Cached for lock-free reads on the audio thread
+    std::atomic<float>* delayTimeMs = nullptr;
+    std::atomic<float>* feedbackPercent = nullptr;
+    std::atomic<float>* mixPercent = nullptr;
+    std::atomic<float>* pingPong = nullptr;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };
