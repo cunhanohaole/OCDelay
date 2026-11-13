@@ -358,10 +358,11 @@ TEST_CASE ("Slowing down with Pitch Follow plays at half speed", "[RepeaterEngin
     CHECK_THAT (buffer.getSample (0, firstStart + preRoll), WithinAbs (0.0, 1.0e-6));
 }
 
-TEST_CASE ("The speed curve steps the interval in equal milliseconds", "[RepeaterEngine]")
+TEST_CASE ("The speed curve steps the interval on a square-root scale", "[RepeaterEngine]")
 {
-    // Halfway up from S to S/2 is 3/4 S, not the 0.71 S a log scale would give
-    constexpr int kInterval = 3 * kSlice / 4;
+    // Halfway up from S to S/2: ((sqrt 4800 + sqrt 2400) / 2)^2 = 3497.1, between the 3394 of a
+    // log scale and the 3600 of equal milliseconds
+    constexpr int kInterval = 3497;
     auto engine = makeEngine ({ .endIntervalSamples = kSlice / 2 });
     const auto preRoll = engine->getPreRollSamples();
     const auto origin = kHitSample - preRoll;
