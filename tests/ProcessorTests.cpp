@@ -66,6 +66,7 @@ namespace
         int numSamples,
         int hitSample = 1000)
     {
+        REQUIRE (numSamples >= hitSample + 100); // the burst must fit in the buffer
         REQUIRE (plugin.setBusesLayout (makeLayout (input, output)));
         setPlainValue (plugin, ParamIDs::mix, 100.0f);
         plugin.prepareToPlay (kSampleRate, kBlockSize);
@@ -419,12 +420,14 @@ TEST_CASE ("End Rate Division sets the top of the speed curve", "[processor]")
 TEST_CASE ("End Rate follows Sync, and Max Speed overrides it", "[processor]")
 {
     PluginProcessor plugin;
+    // The hit lands at sample 1000, so the buffer must be longer than that
+    constexpr int kNumSamples = 2048;
     setPlainValue (plugin, ParamIDs::endRate, 250.0f);
-    processStereoHit (plugin, 512);
+    processStereoHit (plugin, kNumSamples);
     CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (250.0, 1.0e-3));
 
     setPlainValue (plugin, ParamIDs::maxSpeed, 1.0f);
-    processStereoHit (plugin, 512);
+    processStereoHit (plugin, kNumSamples);
     CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (5.0, 1.0e-3));
 }
 
