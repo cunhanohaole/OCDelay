@@ -5,6 +5,7 @@
 #include "ui/LengthSelector.h"
 #include "ui/OCDelayLookAndFeel.h"
 #include "ui/ParameterKnob.h"
+#include "ui/StopButton.h"
 
 #if JUCE_DEBUG
     #include "melatonin_inspector/melatonin_inspector.h"
@@ -25,6 +26,7 @@ public:
 
 private:
     void layoutControlStrip (juce::Rectangle<int> strip);
+    void layoutLengthColumn (juce::Rectangle<int> column);
     void layoutSwitches (juce::Rectangle<int> column);
     void showDivisionKnobs (bool shouldShowDivisions);
     void enableRateControls (bool freeRateOn);
@@ -42,6 +44,7 @@ private:
     ParameterKnob rateKnob;
     ParameterKnob rateDivisionKnob;
     LengthSelector lengthSelector;
+    StopButton stopButton;
     ParameterKnob thresholdKnob;
     ParameterKnob mixKnob;
     ParameterKnob widthKnob;

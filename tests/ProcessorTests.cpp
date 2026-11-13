@@ -431,6 +431,33 @@ TEST_CASE ("End Rate follows Sync, and Max Speed overrides it", "[processor]")
     CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (5.0, 1.0e-3));
 }
 
+TEST_CASE ("Pressing Stop kills the repeats; holding it doesn't block the next hit", "[processor]")
+{
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000 samples
+
+    constexpr int hit = 1000;
+    auto output = processStereoHit (plugin, 4 * kBlockSize * 8, hit); // repeats from 7000 on
+    REQUIRE (plugin.getPlayheadPosition() > 0.0f);
+
+    setPlainValue (plugin, ParamIDs::stop, 1.0f); // pressed, and held
+    juce::AudioBuffer<float> silence (2, 4 * kBlockSize);
+    silence.clear();
+    processInBlocks (plugin, silence);
+    CHECK (juce::exactlyEqual (silence.getMagnitude (0, kBlockSize, 3 * kBlockSize), 0.0f));
+    CHECK (plugin.getPlayheadPosition() < 0.0f);
+
+    // Still held: a new hit repeats
+    juce::AudioBuffer<float> secondHit (2, 6000 + 3000);
+    secondHit.clear();
+    for (int i = 1000; i < 1100; ++i)
+        for (int channel = 0; channel < 2; ++channel)
+            secondHit.setSample (channel, i, 0.5f);
+    processInBlocks (plugin, secondHit);
+    CHECK_THAT (secondHit.getSample (0, 1000 + 6000 + 50), WithinAbs (0.5, 1.0e-4));
+}
+
 TEST_CASE ("Mono input on a stereo output repeats on both sides", "[processor]")
 {
     PluginProcessor plugin;

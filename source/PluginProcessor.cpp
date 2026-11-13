@@ -44,12 +44,13 @@ PluginProcessor::PluginProcessor()
     endRateDivision = apvts.getRawParameterValue (ParamIDs::endRateDivision.getParamID());
     maxSpeed = apvts.getRawParameterValue (ParamIDs::maxSpeed.getParamID());
     pitchFollow = apvts.getRawParameterValue (ParamIDs::pitchFollow.getParamID());
+    stopHeld = apvts.getRawParameterValue (ParamIDs::stop.getParamID());
 
     jassert (delayTimeMs != nullptr && mixPercent != nullptr
              && pingPong != nullptr && sync != nullptr && division != nullptr
              && length != nullptr && threshold != nullptr && pingPongWidth != nullptr
              && freeRate != nullptr && rateMs != nullptr && rateDivision != nullptr && rateOverlap != nullptr
-             && endRateMs != nullptr && endRateDivision != nullptr && maxSpeed != nullptr && pitchFollow != nullptr);
+             && endRateMs != nullptr && endRateDivision != nullptr && maxSpeed != nullptr && pitchFollow != nullptr && stopHeld != nullptr);
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -144,6 +145,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     copyMonoInputToStereo (buffer);
     updateHostTiming();
     pushParametersToEngine();
+    stopOnPress();
     repeaterEngine.process (buffer, volumeCurve.read(), speedCurve.read());
     uiPlayhead.store (repeaterEngine.getPlayheadPosition());
 }
@@ -170,6 +172,16 @@ void PluginProcessor::pushParametersToEngine()
     effectiveEndIntervalMs.store (endIntervalMs);
     repeaterEngine.setEndIntervalSamples (endIntervalMs * currentSampleRate / 1000.0);
     repeaterEngine.setPitchFollow (pitchFollow->load() >= 0.5f);
+}
+
+// Stop is momentary: only the press stops the repeats, so holding it doesn't keep silencing new hits
+void PluginProcessor::stopOnPress()
+{
+    const auto held = stopHeld->load() >= 0.5f;
+    if (held && ! stopWasHeld)
+        repeaterEngine.stop();
+
+    stopWasHeld = held;
 }
 
 // Sync off: the Slice knob in ms. Sync on: the note division at the host tempo.

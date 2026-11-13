@@ -24,6 +24,7 @@ namespace ParamIDs
     inline const juce::ParameterID endRateDivision { "endRateDivision", 5 };
     inline const juce::ParameterID maxSpeed { "maxSpeed", 5 };
     inline const juce::ParameterID pitchFollow { "pitchFollow", 5 };
+    inline const juce::ParameterID stop { "stop", 6 };
 }
 
 namespace ParamRanges

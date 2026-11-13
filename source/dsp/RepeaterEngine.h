@@ -25,6 +25,9 @@ public:
     void prepare (double sampleRate, int maxBlockSize, int numChannels, double maxSliceSeconds);
     void reset();
 
+    // Fades every repeat out over the restart fade (3 ms). The next hit starts a new tail as usual.
+    void stop();
+
     // Latched on each hit; changes apply from the next hit.
     void setSliceSamples (int newSliceSamples);
     void setIntervalSamples (int newIntervalSamples); // 0 = repeats back to back (every slice)

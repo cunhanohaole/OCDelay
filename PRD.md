@@ -1,4 +1,4 @@
-# PRD: OCDelay v0.5 — Repeater with speed curve and free rate
+# PRD: OCDelay v0.6 — Repeater with speed curve, free rate and Stop
 
 ## Goal
 OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the repeat speed across that time, so a single hit can turn into a riser. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
@@ -7,7 +7,8 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - v0.2 replaced it with a repeater and a volume curve.
 - v0.3 added 1- and 2-bar lengths, a ping-pong Width control and a pitch curve.
 - v0.4 added Free Rate: how often repeats start, set separately from how much audio is captured.
-- v0.5 replaces the pitch curve with a speed curve: the time between repeats moves from the start rate towards an end rate, optionally with the pitch following it like tape.
+- v0.5 replaced the pitch curve with a speed curve: the time between repeats moves from the start rate towards an end rate, optionally with the pitch following it like tape.
+- v0.6 adds a Stop button that kills the repeats.
 
 ## How it works
 1. The plugin waits for a hit: the input jumps above the Threshold after silence.
@@ -36,6 +37,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 | End Rate Division | choice | 1/64 … 1/1    | 1/32      | note | Repeat interval at the top of the speed curve when Sync is on (the same 17 steps as Division) |
 | Max Speed   | bool   | off / on            | off       | —    | On: the top of the speed curve is the fastest rate (Max interval, audio rate) instead of End Rate |
 | Pitch Follow| bool   | off / on            | off       | —    | Off: repeats keep the original pitch. On: each repeat plays faster or slower in proportion to its interval, like tape |
+| Stop        | bool   | off / on            | off       | —    | Momentary: on while the Stop button is held. Switching it on stops the repeats (see Triggering). Automatable, so a DAW can stop a tail at a set point |
 | Volume curve| state  | —                   | ramp down | —    | Volume envelope over Length. Saved with the session; not automatable |
 | Speed curve | state  | —                   | flat at bottom | — | Repeat speed over Length. Bottom = start rate, top = End Rate (or Max). Saved with the session; not automatable |
 
@@ -49,6 +51,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - A new hit is only accepted after the input has stayed below Threshold for [NEED: confirm — start at 50 ms] (re-arm), so one sound can't trigger itself twice.
 - Hits during the slice capture are part of the slice and never retrigger.
 - A hit after the capture restarts everything: the current repeats fade out over 3 ms and a new slice is captured.
+- Stop kills the current repeats: they fade out over 3 ms, the same as a restart, and nothing new is captured. The next hit starts a new tail as usual.
 - Capture includes 5 ms of audio from before the hit was detected (a rolling pre-roll buffer), so attacks aren't cut off.
 - Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit. End Rate, Max Speed and Pitch Follow are read as each repeat starts.
 
@@ -116,7 +119,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 
 ## UI Layout
 - Fixed 860 × 460 px window, not resizable. Every component is laid out relative to the editor bounds.
-- Bottom strip, about 30% of the height: Slice / Division (one shared knob slot), Rate / Rate Division (one shared slot), Length (six segmented buttons: 1 / 2 / 4 / 8 / 16 / 32), Threshold, Mix, Width, then the Sync, Free Rate, Overlap and Ping-Pong switches.
+- Bottom strip, about 30% of the height: Slice / Division (one shared knob slot), Rate / Rate Division (one shared slot), Length (six segmented buttons: 1 / 2 / 4 / 8 / 16 / 32, with a Stop button below them), Threshold, Mix, Width, then the Sync, Free Rate, Overlap and Ping-Pong switches.
 - The Rate knob and the Overlap switch are greyed out and can't be changed while Free Rate is off.
 - All styling goes through the single `OCDelayLookAndFeel` class (still JUCE's default look).
 

@@ -61,6 +61,17 @@ namespace
         }
     }
 
+    // Processes [start, end) of the buffer in host-sized blocks, so a test can act between blocks
+    void processRange (RepeaterEngine& engine, juce::AudioBuffer<float>& buffer, int start, int end)
+    {
+        for (int blockStart = start; blockStart < end; blockStart += kBlockSize)
+        {
+            const auto length = juce::jmin (kBlockSize, end - blockStart);
+            juce::AudioBuffer<float> block (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), blockStart, length);
+            engine.process (block, flatCurve);
+        }
+    }
+
     std::vector<float> makeFlatSpeed (float value) { return std::vector<float> (2048, value); }
 
     void fillSine (juce::AudioBuffer<float>& buffer, int startSample, float frequency, float amplitude)
@@ -575,4 +586,30 @@ TEST_CASE ("A sped-up repeat inside the capture fades out before catching up", "
     // Reading past the capture would jump to stale audio; the fades keep every step small
     CHECK (maxAbsInRange (buffer, 0, 0, buffer.getNumSamples()) > 0.4f);
     CHECK (maxSampleStep (buffer, 0) < 0.05f);
+}
+
+TEST_CASE ("Stop fades the repeats out, and the next hit starts a new tail", "[RepeaterEngine]")
+{
+    auto engine = makeEngine ({});
+    const auto secondHit = kHitSample + kLength / 2;
+    auto buffer = makeSilence (2, kHitSample + kLength);
+    addSmoothBurst (buffer, kHitSample - 32, kSlice);
+    addSmoothBurst (buffer, secondHit - 32, kSlice);
+
+    // Stop mid-plateau of repeat 3, on a block boundary
+    const auto stopSample = 34 * kBlockSize; // 17408, about 2000 samples into repeat 3
+    REQUIRE (stopSample > kHitSample + 3 * kSlice);
+    processRange (*engine, buffer, 0, stopSample);
+    REQUIRE (engine->getPlayheadPosition() > 0.0f);
+
+    engine->stop();
+    processRange (*engine, buffer, stopSample, buffer.getNumSamples());
+
+    // A hard cut would step by 0.5; the 3 ms fade keeps every step small
+    CHECK (maxSampleStep (buffer, 0) < 0.01f);
+    CHECK (std::abs (buffer.getSample (0, stopSample - 1)) > 0.4f);
+    CHECK_THAT (maxAbsInRange (buffer, 0, stopSample + 150, secondHit), WithinAbs (0.0, 1.0e-6));
+
+    // The second hit repeats as normal
+    CHECK_THAT (buffer.getSample (0, secondHit + kSlice + kSlice / 2), WithinAbs (0.5, 1.0e-3));
 }
