@@ -50,6 +50,12 @@ void RepeaterEngine::reset()
     playheadPosition.store (-1.0f, std::memory_order_relaxed);
 }
 
+void RepeaterEngine::stop()
+{
+    for (auto& voice : voices)
+        voice.beginRestartFade();
+}
+
 void RepeaterEngine::setSliceSamples (int newSliceSamples)
 {
     targetSliceSamples = juce::jmax (1, newSliceSamples);

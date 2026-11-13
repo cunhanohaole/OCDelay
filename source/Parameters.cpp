@@ -112,6 +112,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (std::make_unique<juce::AudioParameterChoice> (ParamIDs::endRateDivision, "End Rate Division", TempoSync::getDivisionNames(), ParamRanges::endRateDefaultDivisionIndex));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::maxSpeed, "Max Speed", ParamRanges::maxSpeedDefault));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pitchFollow, "Pitch Follow", ParamRanges::pitchFollowDefault));
+    layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::stop, "Stop", false)); // momentary
 
     return layout;
 }

@@ -135,9 +135,10 @@ void RepeatVoice::startHead (const Context& context)
     head.repeatIndex = nextRepeatIndex++;
     head.rate = context.pitchFollow ? SpeedMapping::followRate (settings.intervalSamples, interval) : 1.0;
     const auto ringSamples = step * (settings.overlap ? kMaxHeads : 1);
-    head.readOffset = readOffsetFor (static_cast<double> (ringSamples) * head.rate);
+    const auto expectedFade = static_cast<double> (edgeFadeFor (ringSamples)) * head.rate; // in slice samples
+    head.readOffset = readOffsetFor (static_cast<double> (ringSamples) * head.rate, expectedFade);
     head.playedSamples = playedSamplesFor (position, head.rate, head.readOffset, step);
-    head.edgeFadeSamples = juce::jlimit (1, maxEdgeFadeSamples, head.playedSamples / 2);
+    head.edgeFadeSamples = edgeFadeFor (head.playedSamples);
     head.active = true;
 
     nextRepeatStart = position + step;
@@ -161,18 +162,24 @@ int RepeatVoice::stepFor (double interval) const
     return juce::jmax (1, juce::roundToInt (interval));
 }
 
-// A repeat normally plays the slice from its start, pre-roll included. A repeat too short to
-// get past the pre-roll would only replay what came before the hit, so short repeats start
-// later: at the hit when they cover no more than the pre-roll, sliding back to the slice start
-// by twice the pre-roll, so a riser never jumps.
-double RepeatVoice::readOffsetFor (double sliceSamplesPerRepeat) const
+// 3 ms, or a quarter of a short repeat. Half (a pure fade in, then out) cost about 5 dB at
+// audio rates; at those rates the edges are part of the buzz's tone rather than clicks.
+int RepeatVoice::edgeFadeFor (int playedSamples) const
+{
+    return juce::jlimit (1, maxEdgeFadeSamples, playedSamples / 4);
+}
+
+// A repeat normally plays the slice from its start, pre-roll included. In a short repeat the
+// pre-roll (the quiet lead-in before the hit) would be a large, audibly quieter share, so short
+// repeats keep only a sixth of their length of it, and never less than their fade-in, so the
+// attack lands at full gain. Repeats from 6 pre-rolls (30 ms) on keep it all; the amount grows
+// smoothly with the repeat's length, so a riser never jumps.
+double RepeatVoice::readOffsetFor (double sliceSamplesPerRepeat, double fadeInSliceSamples) const
 {
     const auto preRoll = static_cast<double> (settings.preRollSamples);
-    if (preRoll <= 0.0)
-        return 0.0;
-
-    const auto towardsHit = 2.0 - sliceSamplesPerRepeat / preRoll;
-    return preRoll * juce::jlimit (0.0, 1.0, towardsHit);
+    const auto minimumKept = juce::jmin (fadeInSliceSamples, preRoll);
+    const auto keptPreRoll = juce::jlimit (minimumKept, preRoll, sliceSamplesPerRepeat / 6.0);
+    return preRoll - keptPreRoll;
 }
 
 // With Overlap the oldest head's slot goes to the next repeat. When the repeats speed up that

@@ -61,6 +61,7 @@ public:
 
 private:
     void pushParametersToEngine();
+    void stopOnPress();
     float computeSliceMs();
     float computeRateMs();
     float computeEndRateMs();
@@ -94,10 +95,12 @@ private:
     std::atomic<float>* endRateDivision = nullptr;
     std::atomic<float>* maxSpeed = nullptr;
     std::atomic<float>* pitchFollow = nullptr;
+    std::atomic<float>* stopHeld = nullptr;
 
     // Audio thread only; keep the last values the host reported
     double hostBpm = TempoSync::fallbackBpm;
     double hostBeatsPerBar = 4.0; // quarter-note beats per bar, from the time signature
+    bool stopWasHeld = false;
 
     std::atomic<float> uiBpm { (float) TempoSync::fallbackBpm };
     std::atomic<float> uiBeatsPerBar { 4.0f };

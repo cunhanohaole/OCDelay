@@ -55,10 +55,10 @@ TEST_CASE ("Editor controls sit in the bottom strip, inside the window", "[edito
         const auto stripTop = bounds.getHeight() * 7 / 10;
         const auto controls = getControls (*editor);
 
-        // Slice, Division (hidden), Rate, Rate Division (hidden), Length, Threshold, Mix, Width,
-        // Sync, Free Rate, Overlap, Ping-Pong
-        CHECK (controls.size() == 12);
-        CHECK (countVisible (controls) == 10);
+        // Slice, Division (hidden), Rate, Rate Division (hidden), Length, Stop, Threshold, Mix,
+        // Width, Sync, Free Rate, Overlap, Ping-Pong
+        CHECK (controls.size() == 13);
+        CHECK (countVisible (controls) == 11);
 
         for (auto* control : controls)
         {
@@ -220,5 +220,20 @@ TEST_CASE ("Speed controls show on the Speed tab, and Max Speed greys out End Ra
         plugin.getAPVTS().getParameter (ParamIDs::maxSpeed.getParamID())->setValueNotifyingHost (1.0f);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
         CHECK_FALSE (findToolbarChild ("End Rate")->isEnabled());
+    });
+}
+
+TEST_CASE ("The Stop button holds the Stop parameter on while pressed", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* stopButton = findChild<StopButton> (*plugin.getActiveEditor());
+        REQUIRE (stopButton != nullptr);
+        auto* stop = plugin.getAPVTS().getRawParameterValue (ParamIDs::stop.getParamID());
+
+        stopButton->getButton().setState (juce::Button::buttonDown);
+        CHECK (stop->load() > 0.5f);
+
+        stopButton->getButton().setState (juce::Button::buttonNormal);
+        CHECK (stop->load() < 0.5f);
     });
 }

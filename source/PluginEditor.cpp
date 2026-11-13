@@ -15,6 +15,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
       rateKnob (p.getAPVTS(), ParamIDs::rate, "Rate"),
       rateDivisionKnob (p.getAPVTS(), ParamIDs::rateDivision, "Rate"),
       lengthSelector (*p.getAPVTS().getParameter (ParamIDs::length.getParamID())),
+      stopButton (*p.getAPVTS().getParameter (ParamIDs::stop.getParamID())),
       thresholdKnob (p.getAPVTS(), ParamIDs::threshold, "Threshold"),
       mixKnob (p.getAPVTS(), ParamIDs::mix, "Mix"),
       widthKnob (p.getAPVTS(), ParamIDs::pingPongWidth, "Width"),
@@ -35,6 +36,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     addAndMakeVisible (rateKnob);
     addChildComponent (rateDivisionKnob);
     addAndMakeVisible (lengthSelector);
+    addAndMakeVisible (stopButton);
     addAndMakeVisible (thresholdKnob);
     addAndMakeVisible (mixKnob);
     addAndMakeVisible (widthKnob);
@@ -99,12 +101,22 @@ void PluginEditor::layoutControlStrip (juce::Rectangle<int> strip)
     rateKnob.setBounds (rateColumn);
     rateDivisionKnob.setBounds (rateColumn);
 
-    lengthSelector.setBounds (strip.removeFromLeft (juce::roundToInt ((float) columnWidth * 1.8f)).reduced (proportionOfWidth (0.01f), 0));
+    layoutLengthColumn (strip.removeFromLeft (juce::roundToInt ((float) columnWidth * 1.8f)).reduced (proportionOfWidth (0.01f), 0));
     thresholdKnob.setBounds (strip.removeFromLeft (columnWidth));
     mixKnob.setBounds (strip.removeFromLeft (columnWidth));
     widthKnob.setBounds (strip.removeFromLeft (columnWidth));
 
     layoutSwitches (strip);
+}
+
+// Length keeps the whole column so its buttons line up with the knobs; Stop sits in the empty
+// band below them, level with the knobs' value boxes (and above the selector, so it gets the clicks)
+void PluginEditor::layoutLengthColumn (juce::Rectangle<int> column)
+{
+    lengthSelector.setBounds (column);
+
+    const auto stopRow = column.withTrimmedTop (column.proportionOfHeight (0.8f)).withTrimmedBottom (column.proportionOfHeight (0.03f));
+    stopButton.setBounds (stopRow.withSizeKeepingCentre (column.proportionOfWidth (0.36f), stopRow.getHeight()));
 }
 
 // Sync, Free Rate, Overlap, Ping-Pong stacked and centred in the column
