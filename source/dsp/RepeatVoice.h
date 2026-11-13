@@ -65,7 +65,8 @@ private:
     void startHead (const Context& context);
     double intervalAt (int voicePosition, const Context& context) const;
     int stepFor (double interval) const;
-    double readOffsetFor (double sliceSamplesPerRepeat) const;
+    int edgeFadeFor (int playedSamples) const;
+    double readOffsetFor (double sliceSamplesPerRepeat, double fadeInSliceSamples) const;
     int playedSamplesFor (int startPosition, double rate, double readOffset, int step) const;
     void trimHeadReusedAt (int nextStart);
     StereoFrame renderHead (const Head& head, const Context& context) const;

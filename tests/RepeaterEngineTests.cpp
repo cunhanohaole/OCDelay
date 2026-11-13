@@ -409,29 +409,33 @@ TEST_CASE ("Each repeat's interval comes from the speed curve where it starts", 
 
 TEST_CASE ("Audio-rate repeats don't click", "[RepeaterEngine]")
 {
-    // At 5 ms apart each repeat plays 5 ms of the slice from the hit. A steady level fills the
-    // slice (the hit's own sample lands on the silent first sample of each fade-in); a hard cut
-    // would step by that level.
+    // A slow rise from -34 dB to -26 dB crosses the -30 dB threshold without a step, so the slice
+    // holds smooth audio around the hit; a hard cut would step by the whole level
     constexpr int kMaxSpeedInterval = 240; // 5 ms
-    constexpr float kLevel = 0.02f; // -34 dB, below the -30 dB threshold
+    constexpr float kQuiet = 0.02f;
+    constexpr float kLoud = 0.05f;
+    constexpr int kRiseSamples = 1000;
     auto engine = makeEngine ({ .endIntervalSamples = kMaxSpeedInterval });
     auto buffer = makeSilence (2, kHitSample + kLength);
-    for (int channel = 0; channel < 2; ++channel)
-        juce::FloatVectorOperations::fill (buffer.getWritePointer (channel), kLevel, buffer.getNumSamples());
-    buffer.setSample (0, kHitSample, 1.0f);
-    buffer.setSample (1, kHitSample, 1.0f);
+    for (int i = 0; i < buffer.getNumSamples(); ++i)
+    {
+        const auto rise = juce::jlimit (0.0f, 1.0f, (float) (i - kHitSample + kRiseSamples / 2) / (float) kRiseSamples);
+        for (int channel = 0; channel < 2; ++channel)
+            buffer.setSample (channel, i, kQuiet + (kLoud - kQuiet) * rise);
+    }
 
     processInBlocks (*engine, buffer, flatCurve, makeFlatSpeed (1.0f));
 
-    // Fades shrink to half the interval, so each repeat is a smooth bump; the fade-out at the
-    // end of Length can add its own slope on top
-    const auto bumpStep = kLevel / (float) (kMaxSpeedInterval / 2);
-    const auto endFadeStep = kLevel / (float) engine->getEdgeFadeSamples();
-    CHECK (maxAbsInRange (buffer, 0, 0, buffer.getNumSamples()) > 0.9f * kLevel);
-    CHECK (maxSampleStep (buffer, 0) < 1.05f * (bumpStep + endFadeStep));
+    // Fades are a quarter of the interval; the fade-out at the end of Length and the rise itself
+    // can add their slopes on top
+    const auto bumpStep = kLoud / (float) (kMaxSpeedInterval / 4);
+    const auto endFadeStep = kLoud / (float) engine->getEdgeFadeSamples();
+    const auto riseStep = (kLoud - kQuiet) / (float) kRiseSamples;
+    CHECK (maxAbsInRange (buffer, 0, 0, buffer.getNumSamples()) > kQuiet);
+    CHECK (maxSampleStep (buffer, 0) < 1.05f * (bumpStep + endFadeStep + riseStep));
 }
 
-TEST_CASE ("Repeats shorter than the pre-roll start at the hit", "[RepeaterEngine]")
+TEST_CASE ("Repeats shorter than the pre-roll start one fade-in before the hit", "[RepeaterEngine]")
 {
     // 200 samples apart is less than the 240-sample pre-roll: from the slice start these repeats
     // would only replay the silence before the hit
@@ -445,16 +449,22 @@ TEST_CASE ("Repeats shorter than the pre-roll start at the hit", "[RepeaterEngin
 
     processInBlocks (*engine, buffer, flatCurve, makeFlatSpeed (1.0f));
 
-    // The first start inside the pre-roll (200) is skipped; from 400 on each repeat reads from
-    // the hit, 50 samples into its 100-sample fade-in
+    // The first start inside the pre-roll (200) is skipped. From 400 on each repeat reads from
+    // 50 samples before the hit, its fade-in length, so the hit arrives at full gain
+    constexpr int kFade = kInterval / 4;
     for (int k = 2; k <= 4; ++k)
-        CHECK_THAT (buffer.getSample (0, origin + k * kInterval + 50), WithinAbs (0.25, 1.0e-6));
+    {
+        const auto start = origin + k * kInterval;
+        CHECK_THAT (buffer.getSample (0, start + kFade / 2), WithinAbs (0.0, 1.0e-6));
+        CHECK_THAT (buffer.getSample (0, start + kFade), WithinAbs (0.5, 1.0e-6));
+    }
 }
 
-TEST_CASE ("Between one and two pre-rolls the start slides back towards the slice start", "[RepeaterEngine]")
+TEST_CASE ("Short repeats keep a sixth of their length of pre-roll", "[RepeaterEngine]")
 {
-    // 360 samples apart: halfway between 240 (start at the hit) and 480 (start at the slice start)
-    constexpr int kInterval = 360;
+    // 1200 samples apart (25 ms): a sixth is 200 of the 240 pre-roll samples, so each repeat
+    // starts 40 samples into the slice and the hit lands 200 samples in
+    constexpr int kInterval = 1200;
     auto engine = makeEngine ({ .endIntervalSamples = kInterval });
     const auto preRoll = engine->getPreRollSamples();
     const auto origin = kHitSample - preRoll;
@@ -462,12 +472,10 @@ TEST_CASE ("Between one and two pre-rolls the start slides back towards the slic
 
     processInBlocks (*engine, buffer, flatCurve, makeFlatSpeed (1.0f));
 
-    // Reading from 120, so the hit lands 120 samples into each repeat, inside its 144-sample fade-in
-    const auto fadeInGain = (double) (preRoll / 2) / (double) engine->getEdgeFadeSamples();
     for (int k = 1; k <= 4; ++k)
     {
         const auto start = origin + k * kInterval;
-        CHECK_THAT (buffer.getSample (0, start + preRoll / 2), WithinAbs (fadeInGain, 1.0e-6));
+        CHECK_THAT (buffer.getSample (0, start + kInterval / 6), WithinAbs (1.0, 1.0e-6));
         CHECK_THAT (buffer.getSample (0, start + preRoll), WithinAbs (0.0, 1.0e-6));
     }
 }
@@ -539,10 +547,12 @@ TEST_CASE ("A short interval cuts each repeat, or lets it ring with Overlap", "[
 
     processInBlocks (*engine, buffer);
 
-    // Repeat 1 starts at the first interval after the pre-roll
+    // Repeat 1 starts at the first interval after the pre-roll. Cut at 25 ms it keeps only a
+    // sixth of its length of pre-roll (200 of 240 samples); ringing with Overlap it keeps it all.
     const auto firstStart = origin + kInterval;
-    CHECK_THAT (buffer.getSample (0, firstStart + preRoll), WithinAbs (1.0, 1.0e-6));
-    CHECK_THAT (buffer.getSample (0, firstStart + kLateOffset), WithinAbs (overlap ? 1.0 : 0.0, 1.0e-6));
+    const auto skippedPreRoll = overlap ? 0 : preRoll - kInterval / 6;
+    CHECK_THAT (buffer.getSample (0, firstStart + preRoll - skippedPreRoll), WithinAbs (1.0, 1.0e-6));
+    CHECK_THAT (buffer.getSample (0, firstStart + kLateOffset - skippedPreRoll), WithinAbs (overlap ? 1.0 : 0.0, 1.0e-6));
 }
 
 TEST_CASE ("Overlap plays at most 16 repeats at once", "[RepeaterEngine]")

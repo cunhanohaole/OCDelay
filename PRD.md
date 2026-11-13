@@ -86,11 +86,11 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Each repeat's interval is the curve's value at the moment it starts: repeat k+1 starts one interval after repeat k. The first repeat starts one interval after the capture start.
 - A sped-up repeat follows the Free Rate rules: with Overlap off it ends where the next begins (3 ms fade-out, or half the interval when that's shorter); with Overlap on repeats stack, up to 16 at once. When Free Rate is off, the speed curve behaves as Free Rate with Overlap off.
 - A repeat that starts while the slice is still being captured only plays audio that has already been captured.
-- Very short repeats start at the hit instead of the slice start, so they replay the attack rather than the 5 ms pre-roll before it. Measured in slice audio a repeat can play (interval × playback rate, or 16 intervals with Overlap on):
-  - up to 1 pre-roll (5 ms): the repeat starts at the hit;
-  - 2 pre-rolls (10 ms) or more: it starts at the slice start, as before;
-  - in between, the start point slides smoothly between the two, so a riser never jumps.
-- Edge fades are min(3 ms, half the interval) so that audio-rate repeats stay click-free.
+- Short repeats keep less of the 5 ms pre-roll, so the quiet lead-in before the hit doesn't take over a repeat and make it quieter. Measured in slice audio a repeat can play (interval × playback rate, or 16 intervals with Overlap on):
+  - a repeat keeps a sixth of its length of pre-roll, and never less than its fade-in, so the attack always lands at full gain;
+  - from 30 ms (6 pre-rolls) on it keeps the whole pre-roll and starts at the slice start, as before;
+  - the amount grows smoothly with the repeat's length, so a riser never jumps.
+- Edge fades are min(3 ms, a quarter of the repeat). Half the repeat (a pure fade in, then out) lost about 5 dB at audio rates; at those rates the edges are part of the buzz's tone, not clicks.
 
 ### Pitch Follow
 - Off: every repeat plays at the original pitch and speed.
