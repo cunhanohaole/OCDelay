@@ -90,13 +90,17 @@ void RepeaterEngine::setPingPongWidth (float newWidth)
     pingPongWidth.setTargetValue (juce::jlimit (0.0f, 1.0f, newWidth));
 }
 
-void RepeaterEngine::setPitchRange (float rangeSemitones, bool bipolar)
+void RepeaterEngine::setEndIntervalSamples (double newEndIntervalSamples)
 {
-    pitchRangeSemitones = rangeSemitones;
-    pitchBipolar = bipolar;
+    endIntervalSamples = juce::jmax (0.0, newEndIntervalSamples);
 }
 
-void RepeaterEngine::process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> pitchTable)
+void RepeaterEngine::setPitchFollow (bool shouldFollow)
+{
+    pitchFollow = shouldFollow;
+}
+
+void RepeaterEngine::process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> speedTable)
 {
     jassert (sampleRate > 0.0); // prepare() must be called first
     jassert (buffer.getNumSamples() <= maxBlockSamples);
@@ -105,9 +109,9 @@ void RepeaterEngine::process (juce::AudioBuffer<float>& buffer, std::span<const 
 
     RepeatVoice::Context context;
     context.volumeTable = volumeTable;
-    context.pitchTable = pitchTable;
-    context.pitchRangeSemitones = pitchRangeSemitones;
-    context.pitchBipolar = pitchBipolar;
+    context.speedTable = speedTable;
+    context.endIntervalSamples = endIntervalSamples;
+    context.pitchFollow = pitchFollow;
 
     for (int i = 0; i < buffer.getNumSamples(); ++i)
         processFrame (buffer, i, context);
@@ -181,7 +185,8 @@ RepeatVoice::Settings RepeaterEngine::makeVoiceSettings() const
 
     const auto interval = targetIntervalSamples > 0 ? targetIntervalSamples : settings.sliceSamples;
     settings.intervalSamples = juce::jlimit (1, settings.lengthSamples, interval);
-    settings.overlap = targetOverlap;
+    // Free Rate off (interval 0) repeats back to back: a sped-up repeat is cut at the next start
+    settings.overlap = targetIntervalSamples > 0 && targetOverlap;
 
     // Pre-roll is limited to half the slice so the hit itself always lands inside it.
     settings.preRollSamples = juce::jmin (preRollSamples, settings.sliceSamples / 2);

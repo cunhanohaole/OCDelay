@@ -1,5 +1,5 @@
 #include "RepeatVoice.h"
-#include "PitchMapping.h"
+#include "SpeedMapping.h"
 
 namespace
 {
@@ -44,9 +44,8 @@ void RepeatVoice::start (const Settings& newSettings)
 
     settings = newSettings;
     position = settings.preRollSamples;
-
-    // Repeats that would start inside the pre-roll (before the hit was heard) are skipped
-    nextRepeatStart = settings.intervalSamples * (position / settings.intervalSamples + 1);
+    nextRepeatStart = -1; // scheduled on the first render, which has the speed curve
+    nextRepeatIndex = 1;
 
     for (auto& head : heads)
         head.active = false;
@@ -80,6 +79,9 @@ StereoFrame RepeatVoice::render (const StereoFrame& dry, const Context& context)
     if (isCapturing())
         writeCapture (position, dry);
 
+    if (nextRepeatStart < 0)
+        scheduleFirstRepeat (context);
+
     if (position == nextRepeatStart && position < settings.lengthSamples)
         startHead (context);
 
@@ -99,47 +101,116 @@ StereoFrame RepeatVoice::render (const StereoFrame& dry, const Context& context)
     return { wet[0] * gain, wet[1] * gain };
 }
 
-// Holds the pitch curve's value at the repeat's start for the whole repeat
+// The first repeat comes one interval after the capture start. Repeats that would start
+// inside the pre-roll (before the hit was heard) are skipped.
+void RepeatVoice::scheduleFirstRepeat (const Context& context)
+{
+    nextRepeatIndex = 1;
+    nextRepeatStart = 0;
+    scheduleNextRepeat (0, context);
+
+    while (nextRepeatStart <= settings.preRollSamples)
+    {
+        scheduleNextRepeat (nextRepeatStart, context);
+        ++nextRepeatIndex;
+    }
+}
+
+// Each repeat's interval is the speed curve's value where it starts
+void RepeatVoice::scheduleNextRepeat (int fromPosition, const Context& context)
+{
+    nextRepeatStart = fromPosition + stepFor (intervalAt (fromPosition, context));
+}
+
+// Holds the playback rate from the repeat's start for the whole repeat
 void RepeatVoice::startHead (const Context& context)
 {
     auto& head = heads[static_cast<size_t> (nextHeadSlot)];
     nextHeadSlot = (nextHeadSlot + 1) % kMaxHeads;
 
+    const auto interval = intervalAt (position, context);
+    const auto step = stepFor (interval);
+
     head.startPosition = position;
-    head.repeatIndex = position / settings.intervalSamples;
-    head.rate = rateAt (position, context);
-    head.playedSamples = playedSamplesFor (position, head.rate);
+    head.repeatIndex = nextRepeatIndex++;
+    head.rate = context.pitchFollow ? SpeedMapping::followRate (settings.intervalSamples, interval) : 1.0;
+    const auto ringSamples = step * (settings.overlap ? kMaxHeads : 1);
+    head.readOffset = readOffsetFor (static_cast<double> (ringSamples) * head.rate);
+    head.playedSamples = playedSamplesFor (position, head.rate, head.readOffset, step);
     head.edgeFadeSamples = juce::jlimit (1, maxEdgeFadeSamples, head.playedSamples / 2);
     head.active = true;
 
-    nextRepeatStart += settings.intervalSamples;
+    nextRepeatStart = position + step;
+
+    if (settings.overlap)
+        trimHeadReusedAt (nextRepeatStart);
 }
 
-double RepeatVoice::rateAt (int voicePosition, const Context& context) const
+double RepeatVoice::intervalAt (int voicePosition, const Context& context) const
 {
-    if (context.pitchTable.empty())
-        return 1.0;
+    const auto startInterval = static_cast<double> (settings.intervalSamples);
+    if (context.speedTable.empty() || context.endIntervalSamples <= 0.0)
+        return startInterval;
 
     const auto normalisedTime = static_cast<double> (voicePosition) / static_cast<double> (settings.lengthSamples);
-    const auto curveValue = lookUp (context.pitchTable, normalisedTime);
-    return PitchMapping::semitonesToRate (PitchMapping::toSemitones (curveValue, context.pitchRangeSemitones, context.pitchBipolar));
+    return SpeedMapping::intervalAt (startInterval, context.endIntervalSamples, lookUp (context.speedTable, normalisedTime));
+}
+
+int RepeatVoice::stepFor (double interval) const
+{
+    return juce::jmax (1, juce::roundToInt (interval));
+}
+
+// A repeat normally plays the slice from its start, pre-roll included. A repeat too short to
+// get past the pre-roll would only replay what came before the hit, so short repeats start
+// later: at the hit when they cover no more than the pre-roll, sliding back to the slice start
+// by twice the pre-roll, so a riser never jumps.
+double RepeatVoice::readOffsetFor (double sliceSamplesPerRepeat) const
+{
+    const auto preRoll = static_cast<double> (settings.preRollSamples);
+    if (preRoll <= 0.0)
+        return 0.0;
+
+    const auto towardsHit = 2.0 - sliceSamplesPerRepeat / preRoll;
+    return preRoll * juce::jlimit (0.0, 1.0, towardsHit);
+}
+
+// With Overlap the oldest head's slot goes to the next repeat. When the repeats speed up that
+// can come before the head's audio runs out, so end it there with a fade instead of a cut.
+void RepeatVoice::trimHeadReusedAt (int nextStart)
+{
+    auto& oldest = heads[static_cast<size_t> (nextHeadSlot)];
+    const auto allowed = nextStart - oldest.startPosition;
+
+    if (! oldest.active || oldest.playedSamples <= allowed)
+        return;
+
+    oldest.playedSamples = allowed;
+    oldest.edgeFadeSamples = juce::jlimit (1, oldest.edgeFadeSamples, nextStart - position);
 }
 
 // How long a repeat holds audio: until the slice runs out at its rate, cut at the next start
-// (or the 16th next with overlap), and never past audio that hasn't been captured yet
-int RepeatVoice::playedSamplesFor (int startPosition, double rate) const
+// (with Overlap, about 16 starts later), and never past audio that hasn't been captured yet
+int RepeatVoice::playedSamplesFor (int startPosition, double rate, double readOffset, int step) const
 {
-    const auto sliceAtRate = static_cast<int> (static_cast<double> (settings.sliceSamples - 1) / rate) + 1;
-    const auto window = settings.intervalSamples * (settings.overlap ? kMaxHeads : 1);
+    const auto sliceAtRate = static_cast<int> ((static_cast<double> (settings.sliceSamples - 1) - readOffset) / rate) + 1;
+    const auto window = step * (settings.overlap ? kMaxHeads : 1);
     auto played = juce::jmin (sliceAtRate, window);
 
     // Reading at rate r from a slice still being captured: the read head (plus the two samples
     // the interpolator looks ahead) must stay behind the write head
-    if (startPosition < settings.sliceSamples && rate > 1.0)
+    if (startPosition < settings.sliceSamples)
     {
-        const auto catchUp = static_cast<int> (static_cast<double> (juce::jmax (0, startPosition - 2)) / (rate - 1.0));
-        if (startPosition + catchUp < settings.sliceSamples)
-            played = juce::jmin (played, catchUp + 1);
+        const auto lead = static_cast<double> (startPosition - 2) - readOffset;
+        if (lead < 0.0)
+            return 1;
+
+        if (rate > 1.0)
+        {
+            const auto catchUp = static_cast<int> (lead / (rate - 1.0));
+            if (startPosition + catchUp < settings.sliceSamples)
+                played = juce::jmin (played, catchUp + 1);
+        }
     }
 
     return juce::jmax (1, played);
@@ -148,7 +219,7 @@ int RepeatVoice::playedSamplesFor (int startPosition, double rate) const
 StereoFrame RepeatVoice::renderHead (const Head& head, const Context& context) const
 {
     const auto headPosition = position - head.startPosition;
-    const auto readPosition = static_cast<double> (headPosition) * head.rate;
+    const auto readPosition = head.readOffset + static_cast<double> (headPosition) * head.rate;
     const auto fade = edgeFadeGain (headPosition, head.playedSamples, head.edgeFadeSamples);
 
     const auto left = readInterpolated (0, readPosition) * fade;

@@ -1,12 +1,13 @@
-# PRD: OCDelay v0.4 — Repeater with pitch curve and free rate
+# PRD: OCDelay v0.5 — Repeater with speed curve and free rate
 
 ## Goal
-OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the pitch across that time. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
+OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the repeat speed across that time, so a single hit can turn into a riser. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
 
 - v0.1 (shipped) was a classic feedback delay.
 - v0.2 replaced it with a repeater and a volume curve.
 - v0.3 added 1- and 2-bar lengths, a ping-pong Width control and a pitch curve.
-- v0.4 adds Free Rate: how often repeats start, set separately from how much audio is captured.
+- v0.4 added Free Rate: how often repeats start, set separately from how much audio is captured.
+- v0.5 replaces the pitch curve with a speed curve: the time between repeats moves from the start rate towards an end rate, optionally with the pitch following it like tape.
 
 ## How it works
 1. The plugin waits for a hit: the input jumps above the Threshold after silence.
@@ -14,7 +15,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 3. It replays that slice until Length is reached, measured from the hit, then stops exactly there.
    - By default the repeats play back to back: a new one starts every Slice. Example: a 1-bar slice with an 8-bar Length plays the original bar plus 7 repeats.
    - With Free Rate on, a new repeat starts every Rate instead, which can leave gaps (Rate longer than Slice) or overlaps (Rate shorter than Slice).
-4. The volume curve shapes the repeats over the whole Length. The pitch curve sets the pitch of each repeat.
+4. The volume curve shapes the repeats over the whole Length. The speed curve sets how often repeats start, from the start rate (Slice, or Rate with Free Rate on) towards the End Rate.
 
 ## Features
 | Parameter   | Type   | Range               | Default   | Unit | Notes |
@@ -31,12 +32,15 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 | Mix         | float  | 0 – 100             | 50        | %    | 0 = dry only, 100 = repeats only |
 | Ping-Pong   | bool   | off / on            | off       | —    | Repeats alternate L, R, L… (input summed to mono) |
 | Width       | float  | 0 – 100             | 100       | %    | How far apart Ping-Pong places the repeats. 100 = hard left/right, 0 = centred. Only has an effect with Ping-Pong on |
-| Pitch Range | float  | 1 – 48              | 12        | st   | Semitones covered by the pitch curve |
-| Bipolar     | bool   | off / on            | off       | —    | Off: curve bottom = no change, top = +Range. On: middle = no change, top = +Range, bottom = −Range |
+| End Rate    | float  | 1 – 2000            | 62.5      | ms   | Repeat interval at the top of the speed curve when Sync is off |
+| End Rate Division | choice | 1/64 … 1/1    | 1/32      | note | Repeat interval at the top of the speed curve when Sync is on (the same 17 steps as Division) |
+| Max Speed   | bool   | off / on            | off       | —    | On: the top of the speed curve is the fastest rate (Max interval, audio rate) instead of End Rate |
+| Pitch Follow| bool   | off / on            | off       | —    | Off: repeats keep the original pitch. On: each repeat plays faster or slower in proportion to its interval, like tape |
 | Volume curve| state  | —                   | ramp down | —    | Volume envelope over Length. Saved with the session; not automatable |
-| Pitch curve | state  | —                   | flat at bottom | — | Pitch over Length. Saved with the session; not automatable |
+| Speed curve | state  | —                   | flat at bottom | — | Repeat speed over Length. Bottom = start rate, top = End Rate (or Max). Saved with the session; not automatable |
 
 - Feedback is removed. Its parameter ID `feedback` is retired and must never be reused.
+- Pitch Range and Bipolar are removed with the pitch curve in v0.5. Their IDs `pitchRange` and `pitchBipolar` are retired and must never be reused. A saved pitch curve is ignored on load.
 - Length gained 1 and 2 bars before v0.2 was ever released, so its choice list changed in place. From v0.3 on, its choices only ever get appended.
 - VST3 only, macOS and Windows.
 
@@ -46,7 +50,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Hits during the slice capture are part of the slice and never retrigger.
 - A hit after the capture restarts everything: the current repeats fade out over 3 ms and a new slice is captured.
 - Capture includes 5 ms of audio from before the hit was detected (a rolling pre-roll buffer), so attacks aren't cut off.
-- Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit.
+- Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit. End Rate, Max Speed and Pitch Follow are read as each repeat starts.
 
 ## Playback
 - Each repeat gets a 3 ms fade-in and fade-out at its edges so slice boundaries never click.
@@ -62,41 +66,52 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Mix and Width changes are smoothed. Toggling Ping-Pong never clicks. Zero added latency. Works at 44.1–192 kHz.
 
 ## Free Rate
-- Repeat k (k ≥ 1) starts exactly k × Rate after the capture start; the repeat grid ignores pitch.
-- Each repeat plays the captured slice from its beginning. A repeat that starts while the slice is still being captured only plays audio that has already been captured; a sped-up repeat that would catch up with the capture ends there (with its fade-out).
+- With a flat speed curve at the bottom, repeat k (k ≥ 1) starts exactly k × Rate after the capture start. The speed curve changes the gaps (see Speed).
+- Each repeat plays the captured slice from its beginning (very short repeats from the hit; see Speed). A repeat that starts while the slice is still being captured only plays audio that has already been captured; a sped-up repeat that would catch up with the capture ends there (with its fade-out).
 - Rate longer than Slice: silence between repeats.
 - Rate shorter than Slice, Overlap off: each repeat ends where the next begins, its 3 ms fade-out ending exactly on the next start.
 - Rate shorter than Slice, Overlap on: repeats ring out fully and are summed. At most 16 repeats sound at once: a repeat is cut, with its fade, when the 16th repeat after it starts. There is no automatic gain compensation; the volume curve and Mix set the level.
 - Each repeat keeps its own pitch and ping-pong side; the volume curve is one envelope over time applied to all of them.
-- With Free Rate off, playback is exactly as in v0.3.
+- With Free Rate off and a flat speed curve at the bottom, playback is exactly as in v0.2 (back to back, every Slice).
 
-## Pitch
-- Pitch works like varispeed (tape): each repeat plays the captured slice faster or slower.
-  - Higher pitch: the repeat's audio ends early, followed by silence until the next repeat starts.
-  - Lower pitch: the repeat is cut off when the next repeat starts.
-  - Repeats still start on the same grid (every Slice, or every Rate with Free Rate on), whatever the pitch.
-- Each repeat holds one pitch: the pitch curve's value at the moment that repeat starts. The original slice (the dry hit) is never repitched.
-- Semitones = curve value mapped through Range and Bipolar; playback rate = 2^(semitones / 12).
-- Range and Bipolar are read when each repeat starts, so changing them affects the next repeat.
-- The 3 ms edge fades apply to the audio that is actually played, so a sped-up repeat fades out where its audio ends.
+## Speed
+- The start rate is Slice (Free Rate off) or Rate (Free Rate on). The end rate is End Rate / End Rate Division (following Sync, like Slice and Rate), or Max when Max Speed is on.
+- Max is a 5 ms interval (about 200 repeats per second), fast enough that the repeats blur into a pitched buzz. [NEED: confirm by ear]
+- The curve's value v (0 at the bottom, 1 at the top) sets the interval on a log scale: interval = start × (end ÷ start)^v. A straight line therefore sounds like an even acceleration.
+  - An end rate longer than the start rate makes the repeats slow down instead; nothing else changes.
+- Each repeat's interval is the curve's value at the moment it starts: repeat k+1 starts one interval after repeat k. The first repeat starts one interval after the capture start.
+- A sped-up repeat follows the Free Rate rules: with Overlap off it ends where the next begins (3 ms fade-out, or half the interval when that's shorter); with Overlap on repeats stack, up to 16 at once. When Free Rate is off, the speed curve behaves as Free Rate with Overlap off.
+- A repeat that starts while the slice is still being captured only plays audio that has already been captured.
+- Very short repeats start at the hit instead of the slice start, so they replay the attack rather than the 5 ms pre-roll before it. Measured in slice audio a repeat can play (interval × playback rate, or 16 intervals with Overlap on):
+  - up to 1 pre-roll (5 ms): the repeat starts at the hit;
+  - 2 pre-rolls (10 ms) or more: it starts at the slice start, as before;
+  - in between, the start point slides smoothly between the two, so a riser never jumps.
+- Edge fades are min(3 ms, half the interval) so that audio-rate repeats stay click-free.
+
+### Pitch Follow
+- Off: every repeat plays at the original pitch and speed.
+- On: works like varispeed (tape). A repeat's playback rate = start rate interval ÷ its own interval, so half the gap plays twice as fast (+12 st) and the audio fits its shorter slot.
+  - Pitch is continuous, never rounded to semitones, so it glides with the speed.
+  - Each repeat holds the playback rate it started with. With fast repeats the steps are too short to hear as steps.
+  - Slower than the start rate: lower pitch, and the repeat is cut where the next begins.
+- The original slice (the dry hit) is never repitched.
 - Fractional read positions are interpolated (cubic). Anti-aliasing for large upward shifts is out of scope for now.
 
 ## Curve Editor
-- Fills the area above the control strip. Two tabs at the top-left switch between the **Volume** and **Pitch** curves; both use the same editing gestures.
+- Fills the area above the control strip. Two tabs at the top-left switch between the **Volume** and **Speed** curves; both use the same editing gestures.
 - The x-axis spans the full Length in bars, with beat grid lines.
 - Volume tab: y-axis is volume, 0–100%. Default curve: a straight ramp from 100% at the start to 0% at the end.
-- Pitch tab: y-axis is semitones, labelled with the top, bottom and no-change values for the current Range and Bipolar.
-  - A line marks "no change" (the bottom in unipolar, the middle in bipolar).
-  - Default curve: flat at the bottom (no pitch change in unipolar mode).
-  - Switching Bipolar doesn't move the curve's points; it changes what they mean.
-  - The Pitch Range control and the Bipolar switch sit in the curve area's top bar, visible only on the Pitch tab.
+- Speed tab: y-axis is the repeat interval, labelled with the start rate at the bottom and the end rate (or "Max") at the top.
+  - Default curve: flat at the bottom (no speed change).
+  - Changing the start or end rate doesn't move the curve's points; it changes what they mean.
+  - The End Rate control and the Max Speed and Pitch Follow switches sit in the curve area's top bar, visible only on the Speed tab. End Rate is greyed out while Max Speed is on.
 - Drag points to move them. Double-click empty space to add a point. Right-click a point to delete it.
 - The first and last points stay at the start and end and move only vertically.
 - Drag a segment up or down to bend it (curvature).
-- Snap toggle, on by default. It snaps points to the beat grid horizontally; on the Pitch tab it also snaps them to whole semitones vertically.
-- Faint vertical markers show where each repeat starts at the current Slice (or Rate) and Length.
+- Snap toggle, on by default. It snaps points to the beat grid horizontally only, on both tabs.
+- Faint vertical markers show where each repeat starts at the current Slice (or Rate), speed curve and Length. Where repeats come faster than about one per 4 px, the markers merge into a shaded band.
 - A playhead line shows the current position while repeats are playing.
-- Curve edits apply immediately, even mid-tail (pitch edits from the next repeat).
+- Curve edits apply immediately, even mid-tail (speed edits from the next repeat).
 
 ## UI Layout
 - Fixed 860 × 460 px window, not resizable. Every component is laid out relative to the editor bounds.
@@ -107,9 +122,10 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 ## Out of Scope (for now)
 - Bar-grid or MIDI triggering
 - A "classic delay" mode (v0.1 lives in git history)
-- Stepped per-repeat volume mode; continuous pitch glide within a repeat
+- Stepped per-repeat volume mode; speed or pitch changing within a single repeat
 - Time-preserving (granular) pitch shifting
-- Curves for parameters other than volume and pitch
+- A separate pitch curve; semitone-quantised pitch
+- Curves for parameters other than volume and speed
 - Curve presets and undo/redo for curve edits
 - Preset system, filters, modulation, saturation
 - Custom UI graphics beyond JUCE's default look-and-feel

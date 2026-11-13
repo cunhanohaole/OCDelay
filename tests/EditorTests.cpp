@@ -141,18 +141,18 @@ TEST_CASE ("Length buttons follow the parameter", "[editor]")
     });
 }
 
-TEST_CASE ("Pitch tab shows and edits the pitch curve", "[editor]")
+TEST_CASE ("Speed tab shows and edits the speed curve", "[editor]")
 {
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
         REQUIRE (curveEditor != nullptr);
 
-        curveEditor->getToolbar().setTarget (CurveTarget::pitch);
-        CHECK (curveEditor->getCurve() == plugin.getCurve (CurveTarget::pitch));
+        curveEditor->getToolbar().setTarget (CurveTarget::speed);
+        CHECK (curveEditor->getCurve() == plugin.getCurve (CurveTarget::speed));
 
-        // A pitch curve replaced from outside shows up; the volume curve is untouched
+        // A speed curve replaced from outside shows up; the volume curve is untouched
         auto replaced = EnvelopeCurve::makeFlat (0.5f);
-        plugin.updateCurve (replaced, CurveTarget::pitch);
+        plugin.updateCurve (replaced, CurveTarget::speed);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
         CHECK (curveEditor->getCurve() == replaced);
         CHECK (plugin.getCurve (CurveTarget::volume) == EnvelopeCurve {});
@@ -186,5 +186,39 @@ TEST_CASE ("Rate and Overlap are enabled only with Free Rate on", "[editor]")
         plugin.getAPVTS().getParameter (ParamIDs::freeRate.getParamID())->setValueNotifyingHost (1.0f);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
         CHECK_FALSE (rateControlsEnabled().contains (false));
+    });
+}
+
+TEST_CASE ("Speed controls show on the Speed tab, and Max Speed greys out End Rate", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
+        REQUIRE (curveEditor != nullptr);
+        auto& toolbar = curveEditor->getToolbar();
+
+        auto findToolbarChild = [&toolbar] (const juce::String& name) -> juce::Component* {
+            for (auto* child : toolbar.getChildren())
+            {
+                if (auto* slider = dynamic_cast<juce::Slider*> (child); slider != nullptr && slider->getTitle() == name && slider->isVisible())
+                    return slider;
+                if (auto* button = dynamic_cast<juce::Button*> (child); button != nullptr && button->getButtonText() == name)
+                    return button;
+            }
+            return nullptr;
+        };
+
+        REQUIRE (findToolbarChild ("Pitch Follow") != nullptr);
+        CHECK_FALSE (findToolbarChild ("Pitch Follow")->isVisible());
+        CHECK (findToolbarChild ("End Rate") == nullptr);
+
+        toolbar.setTarget (CurveTarget::speed);
+        CHECK (findToolbarChild ("Pitch Follow")->isVisible());
+        CHECK (findToolbarChild ("Max Speed")->isVisible());
+        REQUIRE (findToolbarChild ("End Rate") != nullptr);
+        CHECK (findToolbarChild ("End Rate")->isEnabled());
+
+        plugin.getAPVTS().getParameter (ParamIDs::maxSpeed.getParamID())->setValueNotifyingHost (1.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+        CHECK_FALSE (findToolbarChild ("End Rate")->isEnabled());
     });
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Parameters.h"
 #include "TempoSync.h"
 #include "curve/CurveSlot.h"
 #include "dsp/RepeaterEngine.h"
@@ -45,16 +46,13 @@ public:
     void updateCurve (const EnvelopeCurve& newCurve, CurveTarget target = CurveTarget::volume);
     int getCurveVersion() const { return curveVersion.load(); }
 
-    // Pitch curve mapping, for the UI (the parameters' current values)
-    float getPitchRangeSemitones() const { return pitchRange->load(); }
-    bool isPitchBipolar() const { return pitchBipolar->load() >= 0.5f; }
-
     // Host timing and playback position for the UI (written by the audio thread)
     float getHostBpm() const { return uiBpm.load(); }
     float getBeatsPerBar() const { return uiBeatsPerBar.load(); }
     float getPlayheadPosition() const { return uiPlayhead.load(); }
     float getSliceMs() const { return effectiveSliceMs.load(); }
     float getRepeatIntervalMs() const { return effectiveIntervalMs.load(); } // Rate, or Slice when Free Rate is off
+    float getEndIntervalMs() const { return effectiveEndIntervalMs.load(); } // top of the speed curve: End Rate or Max
     int getLengthBars() const;
 
     // Capture buffers are sized for this. Synced slices can exceed the 2 s ms range:
@@ -65,10 +63,11 @@ private:
     void pushParametersToEngine();
     float computeSliceMs();
     float computeRateMs();
+    float computeEndRateMs();
     bool isFreeRateOn() const { return freeRate->load() >= 0.5f; }
     double computeLengthSeconds (double bpm, double beatsPerBar) const;
     void updateHostTiming();
-    static EnvelopeCurve defaultPitchCurve() { return EnvelopeCurve::makeFlat (0.0f); } // no change in unipolar mode
+    static EnvelopeCurve defaultSpeedCurve() { return EnvelopeCurve::makeFlat (0.0f); } // no speed change
     CurveSlot& getSlot (CurveTarget target);
     void appendCurveTrees (juce::ValueTree& state) const;
     void restoreCurves (juce::ValueTree& state);
@@ -87,12 +86,14 @@ private:
     std::atomic<float>* length = nullptr;
     std::atomic<float>* threshold = nullptr;
     std::atomic<float>* pingPongWidth = nullptr;
-    std::atomic<float>* pitchRange = nullptr;
-    std::atomic<float>* pitchBipolar = nullptr;
     std::atomic<float>* freeRate = nullptr;
     std::atomic<float>* rateMs = nullptr;
     std::atomic<float>* rateDivision = nullptr;
     std::atomic<float>* rateOverlap = nullptr;
+    std::atomic<float>* endRateMs = nullptr;
+    std::atomic<float>* endRateDivision = nullptr;
+    std::atomic<float>* maxSpeed = nullptr;
+    std::atomic<float>* pitchFollow = nullptr;
 
     // Audio thread only; keep the last values the host reported
     double hostBpm = TempoSync::fallbackBpm;
@@ -103,10 +104,11 @@ private:
     std::atomic<float> uiPlayhead { -1.0f };
 
     CurveSlot volumeCurve { EnvelopeCurve {} };
-    CurveSlot pitchCurve { defaultPitchCurve() };
+    CurveSlot speedCurve { defaultSpeedCurve() };
     std::atomic<int> curveVersion { 0 };
     std::atomic<float> effectiveSliceMs { 500.0f }; // what the engine is using, for the UI
     std::atomic<float> effectiveIntervalMs { 500.0f };
+    std::atomic<float> effectiveEndIntervalMs { ParamRanges::endRateDefaultMs };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

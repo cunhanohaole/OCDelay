@@ -8,8 +8,9 @@
 #include <span>
 
 // Repeater for single-shot sounds. A hit (TriggerDetector) captures a slice of the input, then
-// repeats it every interval until the latched length is reached, shaped by a volume curve.
-// A pitch curve sets each repeat's playback rate (varispeed), held for the whole repeat.
+// repeats it until the latched length is reached, shaped by a volume curve. A speed curve moves
+// the time between repeats from the start interval towards an end interval; with Pitch Follow
+// each repeat also plays faster or slower in proportion (varispeed), held for the whole repeat.
 // Two voices alternate so a retrigger can fade the old tail out while the new one captures.
 // Handles 1 (mono) or 2 (stereo) channels. Knows nothing about parameters, tempo or UI:
 // the caller converts slice, interval and length to samples.
@@ -35,12 +36,14 @@ public:
     void setPingPong (bool shouldPingPong);
     void setPingPongWidth (float newWidth); // 0 = repeats centred, 1 = hard left/right
 
-    // How pitch-curve values map to semitones; read as each repeat starts.
-    void setPitchRange (float rangeSemitones, bool bipolar);
+    // Read as each repeat starts. End interval = the interval at the top of the speed curve
+    // (0 = the start interval, so the curve does nothing).
+    void setEndIntervalSamples (double newEndIntervalSamples);
+    void setPitchFollow (bool shouldFollow);
 
     // Both tables are sampled evenly from t = 0 to t = length inclusive.
-    // volumeTable: wet gain. pitchTable: normalised pitch-curve values (empty = no pitch change).
-    void process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> pitchTable = {});
+    // volumeTable: wet gain. speedTable: normalised speed-curve values (empty = no speed change).
+    void process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> speedTable = {});
 
     // Position of the active tail as t / length in [0, 1), or -1 when idle. Safe from any thread.
     float getPlayheadPosition() const { return playheadPosition.load (std::memory_order_relaxed); }
@@ -85,6 +88,6 @@ private:
     int targetIntervalSamples = 0;
     int targetLengthSamples = 1;
     bool targetOverlap = false;
-    float pitchRangeSemitones = 12.0f;
-    bool pitchBipolar = false;
+    double endIntervalSamples = 0.0;
+    bool pitchFollow = false;
 };

@@ -8,7 +8,7 @@
 enum class CurveTarget
 {
     volume,
-    pitch
+    speed
 };
 
 // One editable curve plus the lookup table the audio thread reads from it.
