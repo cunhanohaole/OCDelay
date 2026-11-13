@@ -365,5 +365,5 @@ float CurveEditor::getSliceFraction() const
 {
     const auto msPerBeat = 60000.0f / juce::jmax (1.0f, processor.getHostBpm());
     const auto lengthMs = getTotalBeats() * msPerBeat;
-    return processor.getSliceMs() / lengthMs;
+    return processor.getRepeatIntervalMs() / lengthMs;
 }

@@ -25,6 +25,8 @@ namespace
         float pingPongWidth = 1.0f;
         float pitchRange = 12.0f;
         bool pitchBipolar = false;
+        int intervalSamples = 0; // 0 = every slice
+        bool overlap = false;
         int numChannels = 2;
     };
 
@@ -42,6 +44,8 @@ namespace
         engine->setPingPong (settings.pingPong);
         engine->setPingPongWidth (settings.pingPongWidth);
         engine->setPitchRange (settings.pitchRange, settings.pitchBipolar);
+        engine->setIntervalSamples (settings.intervalSamples);
+        engine->setOverlap (settings.overlap);
         engine->prepare (kSampleRate, kBlockSize, settings.numChannels, kMaxSliceSeconds);
         return engine;
     }
@@ -367,4 +371,85 @@ TEST_CASE ("Sped-up repeats fade out where their audio ends", "[RepeaterEngine]"
     const auto fadeStep = kAmplitude / (float) engine->getEdgeFadeSamples();
     CHECK (maxAbsInRange (buffer, 0, 0, buffer.getNumSamples()) > 0.4f);
     CHECK (maxSampleStep (buffer, 0) < naturalStep + fadeStep + 1.0e-3f);
+}
+
+TEST_CASE ("An interval longer than the slice leaves gaps", "[RepeaterEngine]")
+{
+    constexpr int kInterval = 2 * kSlice;
+    auto engine = makeEngine ({ .intervalSamples = kInterval });
+    const auto preRoll = engine->getPreRollSamples();
+    const auto origin = kHitSample - preRoll;
+    auto buffer = makeImpulse (2, origin + kLength + 1000);
+
+    processInBlocks (*engine, buffer);
+
+    for (int k = 1; k * kInterval < kLength; ++k)
+    {
+        const auto start = origin + k * kInterval;
+        CHECK_THAT (buffer.getSample (0, start + preRoll), WithinAbs (1.0, 1.0e-6));
+        CHECK_THAT (maxAbsInRange (buffer, 0, start + preRoll + 1, start + kInterval), WithinAbs (0.0, 1.0e-6));
+    }
+}
+
+TEST_CASE ("A short interval cuts each repeat, or lets it ring with Overlap", "[RepeaterEngine]")
+{
+    constexpr int kInterval = 1200;
+    constexpr int kLateOffset = 3000; // beyond the interval, inside the slice
+    const auto overlap = GENERATE (false, true);
+
+    auto engine = makeEngine ({ .intervalSamples = kInterval, .overlap = overlap });
+    const auto preRoll = engine->getPreRollSamples();
+    const auto origin = kHitSample - preRoll;
+    auto buffer = makeImpulse (2, origin + kLength);
+    buffer.setSample (0, origin + kLateOffset, 1.0f); // during capture, so it doesn't retrigger
+
+    processInBlocks (*engine, buffer);
+
+    // Repeat 1 starts at the first interval after the pre-roll
+    const auto firstStart = origin + kInterval;
+    CHECK_THAT (buffer.getSample (0, firstStart + preRoll), WithinAbs (1.0, 1.0e-6));
+    CHECK_THAT (buffer.getSample (0, firstStart + kLateOffset), WithinAbs (overlap ? 1.0 : 0.0, 1.0e-6));
+}
+
+TEST_CASE ("Overlap plays at most 16 repeats at once", "[RepeaterEngine]")
+{
+    constexpr int kInterval = 100; // 16 repeats span 1600 samples
+    constexpr int kLateOffset = 2000;
+    auto engine = makeEngine ({ .intervalSamples = kInterval, .overlap = true });
+    const auto preRoll = engine->getPreRollSamples();
+    const auto origin = kHitSample - preRoll;
+    auto buffer = makeImpulse (2, origin + kLength);
+    buffer.setSample (0, origin + kLateOffset, 1.0f);
+
+    processInBlocks (*engine, buffer);
+
+    // Each repeat is cut before it reaches the late impulse, so only the hit is repeated:
+    // copies of it land 40 samples past every 100-sample grid line, nothing lands on them
+    float onGrid = 0.0f;
+    float hitCopies = 0.0f;
+    for (int t = origin + 3 * kInterval; t < origin + kLength - kInterval; ++t)
+    {
+        const auto value = std::abs (buffer.getSample (0, t));
+        if ((t - origin) % kInterval == 0)
+            onGrid = juce::jmax (onGrid, value);
+        if ((t - origin) % kInterval == preRoll % kInterval)
+            hitCopies = juce::jmax (hitCopies, value);
+    }
+
+    CHECK_THAT (onGrid, WithinAbs (0.0, 1.0e-6));
+    CHECK_THAT (hitCopies, WithinAbs (1.0, 1.0e-6));
+}
+
+TEST_CASE ("A sped-up repeat inside the capture fades out before catching up", "[RepeaterEngine]")
+{
+    constexpr int kInterval = 1200;
+    auto engine = makeEngine ({ .intervalSamples = kInterval, .overlap = true });
+    auto buffer = makeSilence (2, kHitSample + kLength);
+    addSmoothBurst (buffer, kHitSample - 32, kSlice + 2000); // a plateau through the capture
+
+    processInBlocks (*engine, buffer, flatCurve, makeFlatPitch (1.0f)); // double speed
+
+    // Reading past the capture would jump to stale audio; the fades keep every step small
+    CHECK (maxAbsInRange (buffer, 0, 0, buffer.getNumSamples()) > 0.4f);
+    CHECK (maxSampleStep (buffer, 0) < 0.05f);
 }

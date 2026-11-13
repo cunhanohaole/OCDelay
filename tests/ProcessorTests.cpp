@@ -103,6 +103,10 @@ TEST_CASE ("Parameters have PRD defaults", "[processor]")
     CHECK_THAT (getPlainValue (plugin, ParamIDs::pitchRange), WithinAbs (12.0, 0.01));
     CHECK (getPlainValue (plugin, ParamIDs::pitchBipolar) < 0.5f);
     CHECK (plugin.getCurve (CurveTarget::pitch) == EnvelopeCurve::makeFlat (0.0f));
+    CHECK (getPlainValue (plugin, ParamIDs::freeRate) < 0.5f);
+    CHECK (getPlainValue (plugin, ParamIDs::rateOverlap) < 0.5f);
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::rate), WithinAbs (500.0, 0.01));
+    CHECK (getText (plugin, ParamIDs::rateDivision) == "1/4");
 }
 
 TEST_CASE ("Length offers 1 to 32 bars", "[processor]")
@@ -265,6 +269,45 @@ TEST_CASE ("A hit repeats at the slice length", "[processor]")
     CHECK_THAT (output.getSample (0, 1050), WithinAbs (0.0, 1.0e-6));
     CHECK_THAT (output.getSample (0, 13050), WithinAbs (0.5, 1.0e-4));
     CHECK_THAT (output.getSample (1, 25050), WithinAbs (0.5, 1.0e-4));
+}
+
+TEST_CASE ("Free Rate starts repeats every Rate instead of every Slice", "[processor]")
+{
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000-sample slice
+    setPlainValue (plugin, ParamIDs::rate, 250.0f); // 12000 samples
+
+    SECTION ("off: Rate is ignored")
+    {
+        const auto output = processStereoHit (plugin, 40000);
+        CHECK_THAT (output.getSample (0, 7050), WithinAbs (0.5, 1.0e-4));
+        CHECK_THAT (plugin.getRepeatIntervalMs(), WithinAbs (125.0, 0.01));
+    }
+
+    SECTION ("on: repeats every 250 ms, silent in between")
+    {
+        setPlainValue (plugin, ParamIDs::freeRate, 1.0f);
+        const auto output = processStereoHit (plugin, 40000);
+        CHECK_THAT (output.getSample (0, 7050), WithinAbs (0.0, 1.0e-6));
+        CHECK_THAT (output.getSample (0, 13050), WithinAbs (0.5, 1.0e-4));
+        CHECK_THAT (output.getSample (0, 25050), WithinAbs (0.5, 1.0e-4));
+        CHECK_THAT (plugin.getRepeatIntervalMs(), WithinAbs (250.0, 0.01));
+    }
+}
+
+TEST_CASE ("Synced Rate uses the Rate Division", "[processor]")
+{
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::sync, 1.0f);
+    setPlainValue (plugin, ParamIDs::freeRate, 1.0f);
+    setPlainValue (plugin, ParamIDs::division, (float) TempoSync::getDivisionNames().indexOf ("1/16")); // 125 ms
+    setPlainValue (plugin, ParamIDs::rateDivision, (float) TempoSync::getDivisionNames().indexOf ("1/8")); // 250 ms
+
+    const auto output = processStereoHit (plugin, 40000);
+    CHECK_THAT (output.getSample (0, 7050), WithinAbs (0.0, 1.0e-6));
+    CHECK_THAT (output.getSample (0, 13050), WithinAbs (0.5, 1.0e-4));
 }
 
 TEST_CASE ("Synced slice uses the note division at the host tempo", "[processor]")

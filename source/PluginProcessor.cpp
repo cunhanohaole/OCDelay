@@ -34,11 +34,16 @@ PluginProcessor::PluginProcessor()
     pingPongWidth = apvts.getRawParameterValue (ParamIDs::pingPongWidth.getParamID());
     pitchRange = apvts.getRawParameterValue (ParamIDs::pitchRange.getParamID());
     pitchBipolar = apvts.getRawParameterValue (ParamIDs::pitchBipolar.getParamID());
+    freeRate = apvts.getRawParameterValue (ParamIDs::freeRate.getParamID());
+    rateMs = apvts.getRawParameterValue (ParamIDs::rate.getParamID());
+    rateDivision = apvts.getRawParameterValue (ParamIDs::rateDivision.getParamID());
+    rateOverlap = apvts.getRawParameterValue (ParamIDs::rateOverlap.getParamID());
 
     jassert (delayTimeMs != nullptr && mixPercent != nullptr
              && pingPong != nullptr && sync != nullptr && division != nullptr
              && length != nullptr && threshold != nullptr && pingPongWidth != nullptr
-             && pitchRange != nullptr && pitchBipolar != nullptr);
+             && pitchRange != nullptr && pitchBipolar != nullptr && freeRate != nullptr
+             && rateMs != nullptr && rateDivision != nullptr && rateOverlap != nullptr);
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -143,6 +148,12 @@ void PluginProcessor::pushParametersToEngine()
     effectiveSliceMs.store (sliceMs);
 
     repeaterEngine.setSliceSamples (juce::roundToInt (sliceMs * currentSampleRate / 1000.0));
+
+    // Free Rate off: 0 tells the engine to repeat back to back, every slice
+    const auto intervalMs = isFreeRateOn() ? computeRateMs() : sliceMs;
+    effectiveIntervalMs.store (intervalMs);
+    repeaterEngine.setIntervalSamples (isFreeRateOn() ? juce::roundToInt (intervalMs * currentSampleRate / 1000.0) : 0);
+    repeaterEngine.setOverlap (rateOverlap->load() >= 0.5f);
     repeaterEngine.setLengthSamples (juce::roundToInt (computeLengthSeconds (hostBpm, hostBeatsPerBar) * currentSampleRate));
     repeaterEngine.setThresholdDb (threshold->load());
     repeaterEngine.setMix (mixPercent->load() / 100.0f);
@@ -158,6 +169,15 @@ float PluginProcessor::computeSliceMs()
         return delayTimeMs->load();
 
     return (float) TempoSync::divisionToMs (juce::roundToInt (division->load()), hostBpm);
+}
+
+// Same rule as Slice: ms with Sync off, the Rate Division at the host tempo with Sync on
+float PluginProcessor::computeRateMs()
+{
+    if (sync->load() < 0.5f)
+        return rateMs->load();
+
+    return (float) TempoSync::divisionToMs (juce::roundToInt (rateDivision->load()), hostBpm);
 }
 
 void PluginProcessor::updateHostTiming()

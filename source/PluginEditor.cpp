@@ -4,7 +4,7 @@
 namespace
 {
     constexpr float kControlStripHeight = 0.3f; // fraction of the window height
-    constexpr float kSwitchHeight = 0.07f;
+    constexpr float kSwitchHeight = 0.058f;
 }
 
 PluginEditor::PluginEditor (PluginProcessor& p)
@@ -12,29 +12,42 @@ PluginEditor::PluginEditor (PluginProcessor& p)
       curveEditor (p),
       delayTimeKnob (p.getAPVTS(), ParamIDs::delayTime, "Slice"),
       divisionKnob (p.getAPVTS(), ParamIDs::division, "Slice"),
+      rateKnob (p.getAPVTS(), ParamIDs::rate, "Rate"),
+      rateDivisionKnob (p.getAPVTS(), ParamIDs::rateDivision, "Rate"),
       lengthSelector (*p.getAPVTS().getParameter (ParamIDs::length.getParamID())),
       thresholdKnob (p.getAPVTS(), ParamIDs::threshold, "Threshold"),
       mixKnob (p.getAPVTS(), ParamIDs::mix, "Mix"),
       widthKnob (p.getAPVTS(), ParamIDs::pingPongWidth, "Width"),
       syncAttachment (p.getAPVTS(), ParamIDs::sync.getParamID(), syncButton),
+      freeRateAttachment (p.getAPVTS(), ParamIDs::freeRate.getParamID(), freeRateButton),
+      overlapAttachment (p.getAPVTS(), ParamIDs::rateOverlap.getParamID(), overlapButton),
       pingPongAttachment (p.getAPVTS(), ParamIDs::pingPong.getParamID(), pingPongButton),
       syncVisibilityAttachment (*p.getAPVTS().getParameter (ParamIDs::sync.getParamID()),
-          [this] (float value) { showDivisionKnob (value >= 0.5f); })
+          [this] (float value) { showDivisionKnobs (value >= 0.5f); }),
+      freeRateEnableAttachment (*p.getAPVTS().getParameter (ParamIDs::freeRate.getParamID()),
+          [this] (float value) { enableRateControls (value >= 0.5f); })
 {
     setLookAndFeel (&lookAndFeel);
 
     addAndMakeVisible (curveEditor);
     addAndMakeVisible (delayTimeKnob);
     addChildComponent (divisionKnob);
+    addAndMakeVisible (rateKnob);
+    addChildComponent (rateDivisionKnob);
     addAndMakeVisible (lengthSelector);
     addAndMakeVisible (thresholdKnob);
     addAndMakeVisible (mixKnob);
     addAndMakeVisible (widthKnob);
     addAndMakeVisible (syncButton);
+    addAndMakeVisible (freeRateButton);
+    addAndMakeVisible (overlapButton);
     addAndMakeVisible (pingPongButton);
 
-    syncButton.setTooltip ("Sync the slice length to the host tempo as a note division");
+    syncButton.setTooltip ("Sync Slice and Rate to the host tempo as note divisions");
+    freeRateButton.setTooltip ("Start repeats every Rate instead of every Slice");
+    overlapButton.setTooltip ("When Rate is shorter than Slice: let repeats ring out and stack instead of cutting each one at the next");
     syncVisibilityAttachment.sendInitialUpdate();
+    freeRateEnableAttachment.sendInitialUpdate();
 
 #if JUCE_DEBUG
     setUpInspector();
@@ -72,14 +85,19 @@ void PluginEditor::resized()
 #endif
 }
 
-// Slice / Division, Length (wider, for six buttons), Threshold, Mix, Width, switches
+// Slice / Division, Rate / Rate Division, Length (wider, for six buttons), Threshold, Mix,
+// Width, switches
 void PluginEditor::layoutControlStrip (juce::Rectangle<int> strip)
 {
-    const auto columnWidth = juce::roundToInt ((float) strip.getWidth() / 6.8f);
+    const auto columnWidth = juce::roundToInt ((float) strip.getWidth() / 8.2f);
 
     const auto sliceColumn = strip.removeFromLeft (columnWidth);
     delayTimeKnob.setBounds (sliceColumn);
     divisionKnob.setBounds (sliceColumn);
+
+    const auto rateColumn = strip.removeFromLeft (columnWidth);
+    rateKnob.setBounds (rateColumn);
+    rateDivisionKnob.setBounds (rateColumn);
 
     lengthSelector.setBounds (strip.removeFromLeft (juce::roundToInt ((float) columnWidth * 1.8f)).reduced (proportionOfWidth (0.01f), 0));
     thresholdKnob.setBounds (strip.removeFromLeft (columnWidth));
@@ -89,21 +107,31 @@ void PluginEditor::layoutControlStrip (juce::Rectangle<int> strip)
     layoutSwitches (strip);
 }
 
-// Sync above Ping-Pong, centred in the column
+// Sync, Free Rate, Overlap, Ping-Pong stacked and centred in the column
 void PluginEditor::layoutSwitches (juce::Rectangle<int> column)
 {
-    const auto switchWidth = juce::jmin (column.getWidth(), proportionOfWidth (0.16f));
+    const auto switchWidth = juce::jmin (column.getWidth(), proportionOfWidth (0.14f));
     const auto switchHeight = proportionOfHeight (kSwitchHeight);
-    auto switches = column.withSizeKeepingCentre (switchWidth, 2 * switchHeight);
+    auto switches = column.withSizeKeepingCentre (switchWidth, 4 * switchHeight);
 
-    syncButton.setBounds (switches.removeFromTop (switchHeight));
-    pingPongButton.setBounds (switches);
+    for (auto* button : { &syncButton, &freeRateButton, &overlapButton, &pingPongButton })
+        button->setBounds (switches.removeFromTop (switchHeight));
 }
 
-void PluginEditor::showDivisionKnob (bool shouldShowDivision)
+void PluginEditor::showDivisionKnobs (bool shouldShowDivisions)
 {
-    divisionKnob.setVisible (shouldShowDivision);
-    delayTimeKnob.setVisible (!shouldShowDivision);
+    divisionKnob.setVisible (shouldShowDivisions);
+    delayTimeKnob.setVisible (!shouldShowDivisions);
+    rateDivisionKnob.setVisible (shouldShowDivisions);
+    rateKnob.setVisible (!shouldShowDivisions);
+}
+
+// Greyed out (and not editable) while repeats follow Slice
+void PluginEditor::enableRateControls (bool freeRateOn)
+{
+    rateKnob.setEnabled (freeRateOn);
+    rateDivisionKnob.setEnabled (freeRateOn);
+    overlapButton.setEnabled (freeRateOn);
 }
 
 #if JUCE_DEBUG

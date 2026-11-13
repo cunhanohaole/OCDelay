@@ -1,17 +1,19 @@
-# PRD: OCDelay v0.3 — Repeater with pitch curve
+# PRD: OCDelay v0.4 — Repeater with pitch curve and free rate
 
 ## Goal
 OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the pitch across that time. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
 
 - v0.1 (shipped) was a classic feedback delay.
 - v0.2 replaced it with a repeater and a volume curve.
-- v0.3 adds 1- and 2-bar lengths, a ping-pong Width control and a pitch curve.
+- v0.3 added 1- and 2-bar lengths, a ping-pong Width control and a pitch curve.
+- v0.4 adds Free Rate: how often repeats start, set separately from how much audio is captured.
 
 ## How it works
 1. The plugin waits for a hit: the input jumps above the Threshold after silence.
 2. It captures a slice of the input, Slice long, starting from the hit.
-3. It replays that slice back to back until Length is reached, measured from the hit, then stops exactly there.
-   - Example: a 1-bar slice with an 8-bar Length plays the original bar plus 7 repeats.
+3. It replays that slice until Length is reached, measured from the hit, then stops exactly there.
+   - By default the repeats play back to back: a new one starts every Slice. Example: a 1-bar slice with an 8-bar Length plays the original bar plus 7 repeats.
+   - With Free Rate on, a new repeat starts every Rate instead, which can leave gaps (Rate longer than Slice) or overlaps (Rate shorter than Slice).
 4. The volume curve shapes the repeats over the whole Length. The pitch curve sets the pitch of each repeat.
 
 ## Features
@@ -19,7 +21,11 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 |-------------|--------|---------------------|-----------|------|-------|
 | Slice       | float  | 1 – 2000            | 500       | ms   | Shown when Sync is off. Keeps the param ID `delayTime` |
 | Division    | choice | 1/64 … 1/1          | 1/4       | note | Slice length when Sync is on (the same 17 steps as v0.1) |
-| Sync        | bool   | off / on            | off       | —    | Off: Slice in ms. On: Slice is a note division at the host tempo |
+| Sync        | bool   | off / on            | off       | —    | Off: Slice and Rate in ms. On: both are note divisions at the host tempo |
+| Free Rate   | bool   | off / on            | off       | —    | Off: repeats start every Slice. On: repeats start every Rate |
+| Rate        | float  | 1 – 2000            | 500       | ms   | Time between repeat starts when Sync is off. Enabled only with Free Rate on |
+| Rate Division | choice | 1/64 … 1/1        | 1/4       | note | Time between repeat starts when Sync is on (the same 17 steps as Division). Enabled only with Free Rate on |
+| Overlap     | bool   | off / on            | off       | —    | When Rate is shorter than Slice. Off: each repeat is cut (3 ms fade) when the next starts. On: repeats ring out and stack. Enabled only with Free Rate on |
 | Length      | choice | 1, 2, 4, 8, 16, 32  | 8         | bars | Total time from the hit to the end of the last repeat. Always uses the host tempo |
 | Threshold   | float  | −60 – 0             | −30       | dB   | Input level that counts as a hit [NEED: confirm default by ear] |
 | Mix         | float  | 0 – 100             | 50        | %    | 0 = dry only, 100 = repeats only |
@@ -40,7 +46,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Hits during the slice capture are part of the slice and never retrigger.
 - A hit after the capture restarts everything: the current repeats fade out over 3 ms and a new slice is captured.
 - Capture includes 5 ms of audio from before the hit was detected (a rolling pre-roll buffer), so attacks aren't cut off.
-- Slice, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit.
+- Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit.
 
 ## Playback
 - Each repeat gets a 3 ms fade-in and fade-out at its edges so slice boundaries never click.
@@ -55,11 +61,20 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Tail length reported to the host is Length in seconds.
 - Mix and Width changes are smoothed. Toggling Ping-Pong never clicks. Zero added latency. Works at 44.1–192 kHz.
 
+## Free Rate
+- Repeat k (k ≥ 1) starts exactly k × Rate after the capture start; the repeat grid ignores pitch.
+- Each repeat plays the captured slice from its beginning. A repeat that starts while the slice is still being captured only plays audio that has already been captured; a sped-up repeat that would catch up with the capture ends there (with its fade-out).
+- Rate longer than Slice: silence between repeats.
+- Rate shorter than Slice, Overlap off: each repeat ends where the next begins, its 3 ms fade-out ending exactly on the next start.
+- Rate shorter than Slice, Overlap on: repeats ring out fully and are summed. At most 16 repeats sound at once: a repeat is cut, with its fade, when the 16th repeat after it starts. There is no automatic gain compensation; the volume curve and Mix set the level.
+- Each repeat keeps its own pitch and ping-pong side; the volume curve is one envelope over time applied to all of them.
+- With Free Rate off, playback is exactly as in v0.3.
+
 ## Pitch
 - Pitch works like varispeed (tape): each repeat plays the captured slice faster or slower.
   - Higher pitch: the repeat's audio ends early, followed by silence until the next repeat starts.
   - Lower pitch: the repeat is cut off when the next repeat starts.
-  - Repeats still start on the same grid (every Slice), whatever the pitch.
+  - Repeats still start on the same grid (every Slice, or every Rate with Free Rate on), whatever the pitch.
 - Each repeat holds one pitch: the pitch curve's value at the moment that repeat starts. The original slice (the dry hit) is never repitched.
 - Semitones = curve value mapped through Range and Bipolar; playback rate = 2^(semitones / 12).
 - Range and Bipolar are read when each repeat starts, so changing them affects the next repeat.
@@ -79,17 +94,17 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - The first and last points stay at the start and end and move only vertically.
 - Drag a segment up or down to bend it (curvature).
 - Snap toggle, on by default. It snaps points to the beat grid horizontally; on the Pitch tab it also snaps them to whole semitones vertically.
-- Faint vertical markers show where each repeat starts at the current Slice and Length.
+- Faint vertical markers show where each repeat starts at the current Slice (or Rate) and Length.
 - A playhead line shows the current position while repeats are playing.
 - Curve edits apply immediately, even mid-tail (pitch edits from the next repeat).
 
 ## UI Layout
-- Fixed 760 × 460 px window, not resizable. Every component is laid out relative to the editor bounds.
-- Bottom strip, about 30% of the height: Slice / Division (one shared knob slot), Length (six segmented buttons: 1 / 2 / 4 / 8 / 16 / 32), Threshold, Mix, Width, then the Sync and Ping-Pong switches.
+- Fixed 860 × 460 px window, not resizable. Every component is laid out relative to the editor bounds.
+- Bottom strip, about 30% of the height: Slice / Division (one shared knob slot), Rate / Rate Division (one shared slot), Length (six segmented buttons: 1 / 2 / 4 / 8 / 16 / 32), Threshold, Mix, Width, then the Sync, Free Rate, Overlap and Ping-Pong switches.
+- The Rate knob and the Overlap switch are greyed out and can't be changed while Free Rate is off.
 - All styling goes through the single `OCDelayLookAndFeel` class (still JUCE's default look).
 
 ## Out of Scope (for now)
-- Separate repeat interval (gaps or overlaps between repeats)
 - Bar-grid or MIDI triggering
 - A "classic delay" mode (v0.1 lives in git history)
 - Stepped per-repeat volume mode; continuous pitch glide within a repeat

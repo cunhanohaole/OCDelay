@@ -10,6 +10,7 @@ public:
     ParameterKnob (juce::AudioProcessorValueTreeState& apvts, const juce::ParameterID& parameterID, const juce::String& labelText);
 
     void resized() override;
+    void enablementChanged() override; // dims the whole knob while disabled
 
     juce::Slider& getSlider() { return slider; }
 

@@ -12,6 +12,11 @@ ParameterKnob::ParameterKnob (juce::AudioProcessorValueTreeState& apvts, const j
     addAndMakeVisible (slider);
 }
 
+void ParameterKnob::enablementChanged()
+{
+    setAlpha (isEnabled() ? 1.0f : 0.35f);
+}
+
 void ParameterKnob::resized()
 {
     auto area = getLocalBounds();

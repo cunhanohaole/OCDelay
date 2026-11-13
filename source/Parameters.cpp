@@ -29,14 +29,15 @@ namespace
         return text.retainCharacters ("0123456789.-").getFloatValue();
     }
 
-    std::unique_ptr<juce::AudioParameterFloat> makeDelayTimeParameter()
+    // Slice and Rate: 1-2000 ms, skewed so short times get more of the knob
+    std::unique_ptr<juce::AudioParameterFloat> makeMillisecondsParameter (const juce::ParameterID& id, const juce::String& name)
     {
         juce::NormalisableRange<float> range { ParamRanges::delayTimeMinMs, ParamRanges::delayTimeMaxMs };
         range.setSkewForCentre (ParamRanges::delayTimeSkewCentreMs);
 
         return std::make_unique<juce::AudioParameterFloat> (
-            ParamIDs::delayTime,
-            "Slice",
+            id,
+            name,
             range,
             ParamRanges::delayTimeDefaultMs,
             juce::AudioParameterFloatAttributes()
@@ -109,7 +110,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
-    layout.add (makeDelayTimeParameter());
+    layout.add (makeMillisecondsParameter (ParamIDs::delayTime, "Slice"));
     layout.add (makePercentParameter (ParamIDs::mix, "Mix", 100.0f, ParamRanges::mixDefaultPercent));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pingPong, "Ping-Pong", ParamRanges::pingPongDefault));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::sync, "Sync", ParamRanges::syncDefault));
@@ -119,6 +120,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (makePercentParameter (ParamIDs::pingPongWidth, "Width", 100.0f, ParamRanges::pingPongWidthDefaultPercent));
     layout.add (makePitchRangeParameter());
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pitchBipolar, "Bipolar", ParamRanges::pitchBipolarDefault));
+    layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::freeRate, "Free Rate", ParamRanges::freeRateDefault));
+    layout.add (makeMillisecondsParameter (ParamIDs::rate, "Rate"));
+    layout.add (std::make_unique<juce::AudioParameterChoice> (ParamIDs::rateDivision, "Rate Division", TempoSync::getDivisionNames(), TempoSync::defaultDivisionIndex));
+    layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::rateOverlap, "Overlap", ParamRanges::rateOverlapDefault));
 
     return layout;
 }
