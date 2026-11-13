@@ -358,19 +358,23 @@ TEST_CASE ("Slowing down with Pitch Follow plays at half speed", "[RepeaterEngin
     CHECK_THAT (buffer.getSample (0, firstStart + preRoll), WithinAbs (0.0, 1.0e-6));
 }
 
-TEST_CASE ("The speed curve maps on a log scale", "[RepeaterEngine]")
+TEST_CASE ("The speed curve steps the interval on a square-root scale", "[RepeaterEngine]")
 {
-    // Halfway up from S to S/4 is S/2
-    constexpr int kHalfSlice = kSlice / 2;
-    auto engine = makeEngine ({ .endIntervalSamples = kSlice / 4 });
+    // Halfway up from S to S/2: ((sqrt 4800 + sqrt 2400) / 2)^2 = 3497.1, between the 3394 of a
+    // log scale and the 3600 of equal milliseconds
+    constexpr int kInterval = 3497;
+    auto engine = makeEngine ({ .endIntervalSamples = kSlice / 2 });
     const auto preRoll = engine->getPreRollSamples();
     const auto origin = kHitSample - preRoll;
-    auto buffer = makeImpulse (2, origin + 6 * kHalfSlice);
+    auto buffer = makeImpulse (2, origin + 6 * kInterval);
 
     processInBlocks (*engine, buffer, flatCurve, makeFlatSpeed (0.5f));
 
     for (int k = 1; k <= 4; ++k)
-        CHECK_THAT (buffer.getSample (0, origin + k * kHalfSlice + preRoll), WithinAbs (1.0, 1.0e-6));
+    {
+        CHECK_THAT (buffer.getSample (0, origin + k * kInterval + preRoll), WithinAbs (1.0, 1.0e-6));
+        CHECK_THAT (maxAbsInRange (buffer, 0, origin + k * kInterval + preRoll + 1, origin + (k + 1) * kInterval), WithinAbs (0.0, 1.0e-6));
+    }
 }
 
 TEST_CASE ("Each repeat's interval comes from the speed curve where it starts", "[RepeaterEngine]")
