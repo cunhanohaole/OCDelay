@@ -82,15 +82,15 @@ TEST_CASE ("Sync swaps the Slice knob for the Division knob", "[editor]")
             return juce::String();
         };
 
-        CHECK (isSliderShownFor ("Slice").endsWith ("ms"));
-
-        syncParameter->setValueNotifyingHost (1.0f);
-        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
-        CHECK (isSliderShownFor ("Slice") == "1/4");
+        CHECK (isSliderShownFor ("Slice") == "1/8D"); // Sync is on by default
 
         syncParameter->setValueNotifyingHost (0.0f);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
         CHECK (isSliderShownFor ("Slice").endsWith ("ms"));
+
+        syncParameter->setValueNotifyingHost (1.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+        CHECK (isSliderShownFor ("Slice") == "1/8D");
     });
 }
 
@@ -113,11 +113,11 @@ TEST_CASE ("Curve editor follows the processor's curve", "[editor]")
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
         REQUIRE (curveEditor != nullptr);
-        CHECK (curveEditor->getCurve() == EnvelopeCurve {});
+        CHECK (curveEditor->getCurve() == EnvelopeCurve::makeFlat (1.0f));
 
         // e.g. a session load replacing the curve while the editor is open
         auto replaced = plugin.getCurve();
-        replaced.addPoint (0.5f, 1.0f);
+        replaced.addPoint (0.5f, 0.3f);
         plugin.updateCurve (replaced);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
 
@@ -130,7 +130,7 @@ TEST_CASE ("Length buttons follow the parameter", "[editor]")
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* selector = findChild<LengthSelector> (*plugin.getActiveEditor());
         REQUIRE (selector != nullptr);
-        CHECK (selector->getSelectedIndex() == 3); // 8 bars
+        CHECK (selector->getSelectedIndex() == 2); // 4 bars
 
         auto* length = plugin.getAPVTS().getParameter (ParamIDs::length.getParamID());
         length->setValueNotifyingHost (length->convertTo0to1 (5.0f)); // 32 bars
@@ -155,10 +155,10 @@ TEST_CASE ("Speed tab shows and edits the speed curve", "[editor]")
         plugin.updateCurve (replaced, CurveTarget::speed);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
         CHECK (curveEditor->getCurve() == replaced);
-        CHECK (plugin.getCurve (CurveTarget::volume) == EnvelopeCurve {});
+        CHECK (plugin.getCurve (CurveTarget::volume) == EnvelopeCurve::makeFlat (1.0f));
 
         curveEditor->getToolbar().setTarget (CurveTarget::volume);
-        CHECK (curveEditor->getCurve() == EnvelopeCurve {});
+        CHECK (curveEditor->getCurve() == EnvelopeCurve::makeFlat (1.0f));
     });
 }
 
@@ -215,11 +215,11 @@ TEST_CASE ("Speed controls show on the Speed tab, and Max Speed greys out End Ra
         CHECK (findToolbarChild ("Pitch Follow")->isVisible());
         CHECK (findToolbarChild ("Max Speed")->isVisible());
         REQUIRE (findToolbarChild ("End Rate") != nullptr);
-        CHECK (findToolbarChild ("End Rate")->isEnabled());
+        CHECK_FALSE (findToolbarChild ("End Rate")->isEnabled()); // Max Speed is on by default
 
-        plugin.getAPVTS().getParameter (ParamIDs::maxSpeed.getParamID())->setValueNotifyingHost (1.0f);
+        plugin.getAPVTS().getParameter (ParamIDs::maxSpeed.getParamID())->setValueNotifyingHost (0.0f);
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
-        CHECK_FALSE (findToolbarChild ("End Rate")->isEnabled());
+        CHECK (findToolbarChild ("End Rate")->isEnabled());
     });
 }
 

@@ -1,4 +1,4 @@
-# PRD: OCDelay v0.6 — Repeater with speed curve, free rate and Stop
+# PRD: OCDelay v0.7 — Repeater with speed curve, free rate and Stop
 
 ## Goal
 OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the repeat speed across that time, so a single hit can turn into a riser. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
@@ -8,7 +8,8 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - v0.3 added 1- and 2-bar lengths, a ping-pong Width control and a pitch curve.
 - v0.4 added Free Rate: how often repeats start, set separately from how much audio is captured.
 - v0.5 replaced the pitch curve with a speed curve: the time between repeats moves from the start rate towards an end rate, optionally with the pitch following it like tape.
-- v0.6 adds a Stop button that kills the repeats.
+- v0.6 added a Stop button that kills the repeats.
+- v0.7 changes the defaults (Sync and Ping-Pong on, 4 bars, 1/8D, Max Speed on, a flat volume curve) and stops the repeats when the host's transport stops.
 
 ## How it works
 1. The plugin waits for a hit: the input jumps above the Threshold after silence.
@@ -21,24 +22,24 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 ## Features
 | Parameter   | Type   | Range               | Default   | Unit | Notes |
 |-------------|--------|---------------------|-----------|------|-------|
-| Slice       | float  | 1 – 2000            | 500       | ms   | Shown when Sync is off. Keeps the param ID `delayTime` |
-| Division    | choice | 1/64 … 1/1          | 1/4       | note | Slice length when Sync is on (the same 17 steps as v0.1) |
-| Sync        | bool   | off / on            | off       | —    | Off: Slice and Rate in ms. On: both are note divisions at the host tempo |
+| Slice       | float  | 1 – 2000            | 375       | ms   | Shown when Sync is off. Keeps the param ID `delayTime` |
+| Division    | choice | 1/64 … 1/1          | 1/8D      | note | Slice length when Sync is on (the same 17 steps as v0.1) |
+| Sync        | bool   | off / on            | on        | —    | Off: Slice and Rate in ms. On: both are note divisions at the host tempo |
 | Free Rate   | bool   | off / on            | off       | —    | Off: repeats start every Slice. On: repeats start every Rate |
-| Rate        | float  | 1 – 2000            | 500       | ms   | Time between repeat starts when Sync is off. Enabled only with Free Rate on |
-| Rate Division | choice | 1/64 … 1/1        | 1/4       | note | Time between repeat starts when Sync is on (the same 17 steps as Division). Enabled only with Free Rate on |
+| Rate        | float  | 1 – 2000            | 375       | ms   | Time between repeat starts when Sync is off. Enabled only with Free Rate on |
+| Rate Division | choice | 1/64 … 1/1        | 1/8D      | note | Time between repeat starts when Sync is on (the same 17 steps as Division). Enabled only with Free Rate on |
 | Overlap     | bool   | off / on            | off       | —    | When Rate is shorter than Slice. Off: each repeat is cut (3 ms fade) when the next starts. On: repeats ring out and stack. Enabled only with Free Rate on |
-| Length      | choice | 1, 2, 4, 8, 16, 32  | 8         | bars | Total time from the hit to the end of the last repeat. Always uses the host tempo |
+| Length      | choice | 1, 2, 4, 8, 16, 32  | 4         | bars | Total time from the hit to the end of the last repeat. Always uses the host tempo |
 | Threshold   | float  | −60 – 0             | −30       | dB   | Input level that counts as a hit [NEED: confirm default by ear] |
 | Mix         | float  | 0 – 100             | 50        | %    | 0 = dry only, 100 = repeats only |
-| Ping-Pong   | bool   | off / on            | off       | —    | Repeats alternate L, R, L… (input summed to mono) |
+| Ping-Pong   | bool   | off / on            | on        | —    | Repeats alternate L, R, L… (input summed to mono) |
 | Width       | float  | 0 – 100             | 100       | %    | How far apart Ping-Pong places the repeats. 100 = hard left/right, 0 = centred. Only has an effect with Ping-Pong on |
 | End Rate    | float  | 1 – 2000            | 62.5      | ms   | Repeat interval at the top of the speed curve when Sync is off |
 | End Rate Division | choice | 1/64 … 1/1    | 1/32      | note | Repeat interval at the top of the speed curve when Sync is on (the same 17 steps as Division) |
-| Max Speed   | bool   | off / on            | off       | —    | On: the top of the speed curve is the fastest rate (Max interval, audio rate) instead of End Rate |
+| Max Speed   | bool   | off / on            | on        | —    | On: the top of the speed curve is the fastest rate (Max interval, audio rate) instead of End Rate |
 | Pitch Follow| bool   | off / on            | off       | —    | Off: repeats keep the original pitch. On: each repeat plays faster or slower in proportion to its interval, like tape |
 | Stop        | bool   | off / on            | off       | —    | Momentary: on while the Stop button is held. Switching it on stops the repeats (see Triggering). Automatable, so a DAW can stop a tail at a set point |
-| Volume curve| state  | —                   | ramp down | —    | Volume envelope over Length. Saved with the session; not automatable |
+| Volume curve| state  | —                   | flat at 100 % | — | Volume envelope over Length. Saved with the session; not automatable |
 | Speed curve | state  | —                   | flat at bottom | — | Repeat speed over Length. Bottom = start rate, top = End Rate (or Max). Saved with the session; not automatable |
 
 - Feedback is removed. Its parameter ID `feedback` is retired and must never be reused.
@@ -52,6 +53,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Hits during the slice capture are part of the slice and never retrigger.
 - A hit after the capture restarts everything: the current repeats fade out over 3 ms and a new slice is captured.
 - Stop kills the current repeats: they fade out over 3 ms, the same as a restart, and nothing new is captured. The next hit starts a new tail as usual.
+- Stopping the host's transport (e.g. Space in the DAW) does the same as Stop. Only the moment playback stops counts: hits played live while the transport is stopped still repeat.
 - Capture includes 5 ms of audio from before the hit was detected (a rolling pre-roll buffer), so attacks aren't cut off.
 - Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit. End Rate, Max Speed and Pitch Follow are read as each repeat starts.
 
@@ -104,7 +106,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 ## Curve Editor
 - Fills the area above the control strip. Two tabs at the top-left switch between the **Volume** and **Speed** curves; both use the same editing gestures.
 - The x-axis spans the full Length in bars, with beat grid lines.
-- Volume tab: y-axis is volume, 0–100%. Default curve: a straight ramp from 100% at the start to 0% at the end.
+- Volume tab: y-axis is volume, 0–100%. Default curve: flat at 100% from start to end.
 - Speed tab: y-axis is the repeat interval, labelled with the start rate at the bottom and the end rate (or "Max") at the top.
   - Default curve: flat at the bottom (no speed change).
   - Changing the start or end rate doesn't move the curve's points; it changes what they mean.

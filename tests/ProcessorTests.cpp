@@ -39,12 +39,27 @@ namespace
         return layout;
     }
 
-    void useFlatCurve (PluginProcessor& plugin)
+    // The hit tests below were written for Sync and Ping-Pong off (both on by default since
+    // v0.7): Slice in ms, and the same repeats on both sides. The default volume curve is flat.
+    void useManualSettings (PluginProcessor& plugin)
     {
-        EnvelopeCurve flat;
-        flat.movePoint (1, 1.0f, 1.0f);
-        plugin.updateCurve (flat);
+        setPlainValue (plugin, ParamIDs::sync, 0.0f);
+        setPlainValue (plugin, ParamIDs::pingPong, 0.0f);
     }
+
+    // A host playhead whose transport the test can start and stop
+    struct FakePlayHead : juce::AudioPlayHead
+    {
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (120.0);
+            info.setIsPlaying (playing);
+            return info;
+        }
+
+        bool playing = true;
+    };
 
     void processInBlocks (PluginProcessor& plugin, juce::AudioBuffer<float>& buffer)
     {
@@ -93,24 +108,25 @@ TEST_CASE ("Parameters have PRD defaults", "[processor]")
 {
     PluginProcessor plugin;
 
-    CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), WithinAbs (500.0, 0.01));
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), WithinAbs (375.0, 0.01));
     CHECK_THAT (getPlainValue (plugin, ParamIDs::mix), WithinAbs (50.0, 0.01));
     CHECK_THAT (getPlainValue (plugin, ParamIDs::threshold), WithinAbs (-30.0, 0.01));
-    CHECK (getPlainValue (plugin, ParamIDs::pingPong) < 0.5f);
-    CHECK (getPlainValue (plugin, ParamIDs::sync) < 0.5f);
-    CHECK (getText (plugin, ParamIDs::division) == "1/4");
-    CHECK (getText (plugin, ParamIDs::length) == "8");
-    CHECK (plugin.getLengthBars() == 8);
+    CHECK (getPlainValue (plugin, ParamIDs::pingPong) > 0.5f);
+    CHECK (getPlainValue (plugin, ParamIDs::sync) > 0.5f);
+    CHECK (getText (plugin, ParamIDs::division) == "1/8D");
+    CHECK (getText (plugin, ParamIDs::length) == "4");
+    CHECK (plugin.getLengthBars() == 4);
+    CHECK (plugin.getCurve (CurveTarget::volume) == EnvelopeCurve::makeFlat (1.0f));
     CHECK_THAT (getPlainValue (plugin, ParamIDs::pingPongWidth), WithinAbs (100.0, 0.01));
     CHECK (plugin.getCurve (CurveTarget::speed) == EnvelopeCurve::makeFlat (0.0f));
     CHECK_THAT (getPlainValue (plugin, ParamIDs::endRate), WithinAbs (62.5, 0.01));
     CHECK (getText (plugin, ParamIDs::endRateDivision) == "1/32");
-    CHECK (getPlainValue (plugin, ParamIDs::maxSpeed) < 0.5f);
+    CHECK (getPlainValue (plugin, ParamIDs::maxSpeed) > 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::pitchFollow) < 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::freeRate) < 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::rateOverlap) < 0.5f);
-    CHECK_THAT (getPlainValue (plugin, ParamIDs::rate), WithinAbs (500.0, 0.01));
-    CHECK (getText (plugin, ParamIDs::rateDivision) == "1/4");
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::rate), WithinAbs (375.0, 0.01));
+    CHECK (getText (plugin, ParamIDs::rateDivision) == "1/8D");
 }
 
 TEST_CASE ("Length offers 1 to 32 bars", "[processor]")
@@ -157,7 +173,7 @@ TEST_CASE ("Parameter text shows units", "[processor]")
 {
     PluginProcessor plugin;
 
-    CHECK (getText (plugin, ParamIDs::delayTime) == "500 ms");
+    CHECK (getText (plugin, ParamIDs::delayTime) == "375 ms");
     CHECK (getText (plugin, ParamIDs::mix) == "50 %");
     CHECK (getText (plugin, ParamIDs::threshold) == "-30 dB");
     CHECK (getText (plugin, ParamIDs::pingPongWidth) == "100 %");
@@ -227,7 +243,7 @@ TEST_CASE ("State keeps the volume and speed curves apart", "[processor]")
     restored.setStateInformation (state.getData(), (int) state.getSize());
 
     CHECK (restored.getCurve (CurveTarget::speed) == speed);
-    CHECK (restored.getCurve (CurveTarget::volume) == EnvelopeCurve {});
+    CHECK (restored.getCurve (CurveTarget::volume) == EnvelopeCurve::makeFlat (1.0f));
     CHECK_THAT (getPlainValue (restored, ParamIDs::endRate), WithinAbs (30.0, 0.01));
     CHECK (getPlainValue (restored, ParamIDs::maxSpeed) > 0.5f);
     CHECK (getPlainValue (restored, ParamIDs::pitchFollow) > 0.5f);
@@ -256,7 +272,7 @@ TEST_CASE ("A v0.1 session loads cleanly", "[processor]")
 
     CHECK_THAT (getPlainValue (restored, ParamIDs::delayTime), WithinAbs (1234.0, 0.5));
     CHECK_THAT (getPlainValue (restored, ParamIDs::mix), WithinAbs (25.0, 0.01));
-    CHECK (restored.getCurve() == EnvelopeCurve {});
+    CHECK (restored.getCurve() == EnvelopeCurve::makeFlat (1.0f));
     CHECK (restored.getCurve (CurveTarget::speed) == EnvelopeCurve::makeFlat (0.0f));
 }
 
@@ -284,14 +300,14 @@ TEST_CASE ("Garbage state is ignored", "[processor]")
     const char garbage[] = "not a valid state";
     plugin.setStateInformation (garbage, (int) sizeof (garbage));
 
-    CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), WithinAbs (500.0, 0.01));
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::delayTime), WithinAbs (375.0, 0.01));
 }
 
 //==============================================================================
 TEST_CASE ("A hit repeats at the slice length", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::delayTime, 250.0f); // 12000 samples
 
     const auto output = processStereoHit (plugin, 40000);
@@ -305,7 +321,7 @@ TEST_CASE ("A hit repeats at the slice length", "[processor]")
 TEST_CASE ("Free Rate starts repeats every Rate instead of every Slice", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000-sample slice
     setPlainValue (plugin, ParamIDs::rate, 250.0f); // 12000 samples
 
@@ -330,7 +346,7 @@ TEST_CASE ("Free Rate starts repeats every Rate instead of every Slice", "[proce
 TEST_CASE ("Synced Rate uses the Rate Division", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::sync, 1.0f);
     setPlainValue (plugin, ParamIDs::freeRate, 1.0f);
     setPlainValue (plugin, ParamIDs::division, (float) TempoSync::getDivisionNames().indexOf ("1/16")); // 125 ms
@@ -344,7 +360,7 @@ TEST_CASE ("Synced Rate uses the Rate Division", "[processor]")
 TEST_CASE ("Synced slice uses the note division at the host tempo", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::sync, 1.0f);
     setPlainValue (plugin, ParamIDs::division, (float) TempoSync::getDivisionNames().indexOf ("1/16")); // 125 ms
 
@@ -358,7 +374,7 @@ TEST_CASE ("Repeats stop exactly at the end of Length", "[processor]")
 {
     // 4 bars at 120 BPM = 8 s from the voice origin (the hit minus the pre-roll)
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::length, 2.0f); // 4 bars
     setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000 samples
 
@@ -377,8 +393,9 @@ TEST_CASE ("A 1-bar Length stops after exactly one bar", "[processor]")
     // 1 bar at 120 BPM in 4/4 = 2 s from the voice origin, at any sample rate
     const auto sampleRate = GENERATE (44100.0, 48000.0, 96000.0);
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::length, 0.0f); // 1 bar
+    setPlainValue (plugin, ParamIDs::delayTime, 500.0f);
     setPlainValue (plugin, ParamIDs::mix, 100.0f);
     REQUIRE (plugin.getLengthBars() == 1);
     plugin.prepareToPlay (sampleRate, kBlockSize);
@@ -403,8 +420,9 @@ TEST_CASE ("End Rate Division sets the top of the speed curve", "[processor]")
 {
     // Sync on at 120 BPM: Slice 1/8 = 12000 samples, End Rate 1/16 = 6000 samples
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     plugin.updateCurve (EnvelopeCurve::makeFlat (1.0f), CurveTarget::speed);
+    setPlainValue (plugin, ParamIDs::maxSpeed, 0.0f);
     setPlainValue (plugin, ParamIDs::sync, 1.0f);
     setPlainValue (plugin, ParamIDs::division, 8.0f); // 1/8
     setPlainValue (plugin, ParamIDs::endRateDivision, 5.0f); // 1/16
@@ -422,6 +440,8 @@ TEST_CASE ("End Rate follows Sync, and Max Speed overrides it", "[processor]")
     PluginProcessor plugin;
     // The hit lands at sample 1000, so the buffer must be longer than that
     constexpr int kNumSamples = 2048;
+    setPlainValue (plugin, ParamIDs::maxSpeed, 0.0f);
+    setPlainValue (plugin, ParamIDs::sync, 0.0f);
     setPlainValue (plugin, ParamIDs::endRate, 250.0f);
     processStereoHit (plugin, kNumSamples);
     CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (250.0, 1.0e-3));
@@ -434,7 +454,7 @@ TEST_CASE ("End Rate follows Sync, and Max Speed overrides it", "[processor]")
 TEST_CASE ("Pressing Stop kills the repeats; holding it doesn't block the next hit", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000 samples
 
     constexpr int hit = 1000;
@@ -458,10 +478,38 @@ TEST_CASE ("Pressing Stop kills the repeats; holding it doesn't block the next h
     CHECK_THAT (secondHit.getSample (0, 1000 + 6000 + 50), WithinAbs (0.5, 1.0e-4));
 }
 
+TEST_CASE ("Stopping the host transport kills the repeats; live hits still repeat", "[processor]")
+{
+    PluginProcessor plugin;
+    FakePlayHead playHead;
+    plugin.setPlayHead (&playHead);
+    useManualSettings (plugin);
+    setPlainValue (plugin, ParamIDs::delayTime, 125.0f); // 6000 samples
+
+    processStereoHit (plugin, 16 * kBlockSize, 1000); // playing: repeats from 7000 on
+    REQUIRE (plugin.getPlayheadPosition() > 0.0f);
+
+    playHead.playing = false;
+    juce::AudioBuffer<float> afterStop (2, 4 * kBlockSize);
+    afterStop.clear();
+    processInBlocks (plugin, afterStop);
+    CHECK (juce::exactlyEqual (afterStop.getMagnitude (0, kBlockSize, 3 * kBlockSize), 0.0f));
+    CHECK (plugin.getPlayheadPosition() < 0.0f);
+
+    // Still stopped: a hit played live repeats as usual
+    juce::AudioBuffer<float> liveHit (2, 9000);
+    liveHit.clear();
+    for (int i = 1000; i < 1100; ++i)
+        for (int channel = 0; channel < 2; ++channel)
+            liveHit.setSample (channel, i, 0.5f);
+    processInBlocks (plugin, liveHit);
+    CHECK_THAT (liveHit.getSample (0, 1000 + 6000 + 50), WithinAbs (0.5, 1.0e-4));
+}
+
 TEST_CASE ("Mono input on a stereo output repeats on both sides", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::delayTime, 250.0f);
 
     const auto output = processHit (plugin, juce::AudioChannelSet::mono(), juce::AudioChannelSet::stereo(), 20000);
@@ -473,7 +521,7 @@ TEST_CASE ("Mono input on a stereo output repeats on both sides", "[processor]")
 TEST_CASE ("Mono to mono layout repeats a single channel", "[processor]")
 {
     PluginProcessor plugin;
-    useFlatCurve (plugin);
+    useManualSettings (plugin);
     setPlainValue (plugin, ParamIDs::delayTime, 250.0f);
 
     const auto mono = juce::AudioChannelSet::mono();
@@ -486,7 +534,7 @@ TEST_CASE ("Mono to mono layout repeats a single channel", "[processor]")
 TEST_CASE ("Tail length is Length at the host tempo", "[processor]")
 {
     PluginProcessor plugin;
-    CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (16.0, 1.0e-6)); // 8 bars at 120 BPM
+    CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (8.0, 1.0e-6)); // 4 bars at 120 BPM
 
     setPlainValue (plugin, ParamIDs::length, 5.0f);
     CHECK_THAT (plugin.getTailLengthSeconds(), WithinAbs (64.0, 1.0e-6)); // 32 bars
@@ -499,6 +547,6 @@ TEST_CASE ("Playhead reports progress through the tail", "[processor]")
 
     processStereoHit (plugin, 48000);
 
-    // About 1 s into an 8-bar (16 s) tail
-    CHECK_THAT (plugin.getPlayheadPosition(), WithinAbs (1.0 / 16.0, 0.01));
+    // About 1 s into a 4-bar (8 s) tail
+    CHECK_THAT (plugin.getPlayheadPosition(), WithinAbs (1.0 / 8.0, 0.01));
 }

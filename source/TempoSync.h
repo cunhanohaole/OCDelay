@@ -32,7 +32,7 @@ namespace TempoSync
         { "1/1", 1.0 },
     } };
 
-    inline constexpr int defaultDivisionIndex = 11; // 1/4: 500 ms at 120 BPM, matching the ms default
+    inline constexpr int defaultDivisionIndex = 10; // 1/8D, for Slice and Rate (Sync is on by default)
     inline constexpr double fallbackBpm = 120.0; // used when the host doesn't report a tempo
 
     juce::StringArray getDivisionNames();

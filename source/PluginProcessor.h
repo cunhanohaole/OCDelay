@@ -68,6 +68,8 @@ private:
     bool isFreeRateOn() const { return freeRate->load() >= 0.5f; }
     double computeLengthSeconds (double bpm, double beatsPerBar) const;
     void updateHostTiming();
+    void stopWhenTransportStops (bool hostIsPlaying);
+    static EnvelopeCurve defaultVolumeCurve() { return EnvelopeCurve::makeFlat (1.0f); } // full volume throughout
     static EnvelopeCurve defaultSpeedCurve() { return EnvelopeCurve::makeFlat (0.0f); } // no speed change
     CurveSlot& getSlot (CurveTarget target);
     void appendCurveTrees (juce::ValueTree& state) const;
@@ -101,16 +103,17 @@ private:
     double hostBpm = TempoSync::fallbackBpm;
     double hostBeatsPerBar = 4.0; // quarter-note beats per bar, from the time signature
     bool stopWasHeld = false;
+    bool hostWasPlaying = false;
 
     std::atomic<float> uiBpm { (float) TempoSync::fallbackBpm };
     std::atomic<float> uiBeatsPerBar { 4.0f };
     std::atomic<float> uiPlayhead { -1.0f };
 
-    CurveSlot volumeCurve { EnvelopeCurve {} };
+    CurveSlot volumeCurve { defaultVolumeCurve() };
     CurveSlot speedCurve { defaultSpeedCurve() };
     std::atomic<int> curveVersion { 0 };
-    std::atomic<float> effectiveSliceMs { 500.0f }; // what the engine is using, for the UI
-    std::atomic<float> effectiveIntervalMs { 500.0f };
+    std::atomic<float> effectiveSliceMs { ParamRanges::delayTimeDefaultMs }; // what the engine is using, for the UI
+    std::atomic<float> effectiveIntervalMs { ParamRanges::delayTimeDefaultMs };
     std::atomic<float> effectiveEndIntervalMs { ParamRanges::endRateDefaultMs };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
