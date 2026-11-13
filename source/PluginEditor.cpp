@@ -76,7 +76,7 @@ void PluginEditor::resized()
     curveEditor.setBounds (area.reduced (proportionOfWidth (0.02f), proportionOfHeight (0.02f)));
 
 #if JUCE_DEBUG
-    // In the curve editor's top bar, just right of the Volume / Pitch tabs
+    // In the curve editor's top bar, just right of the Volume / Speed tabs
     inspectButton.setBounds (curveEditor.getBounds()
                                  .removeFromTop (curveEditor.proportionOfHeight (0.12f))
                                  .withTrimmedLeft (curveEditor.proportionOfWidth (CurveToolbar::kTabsWidth + 0.01f))

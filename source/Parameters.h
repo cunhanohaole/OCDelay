@@ -15,12 +15,15 @@ namespace ParamIDs
     inline const juce::ParameterID length { "length", 2 };
     inline const juce::ParameterID threshold { "threshold", 2 };
     inline const juce::ParameterID pingPongWidth { "pingPongWidth", 3 };
-    inline const juce::ParameterID pitchRange { "pitchRange", 3 };
-    inline const juce::ParameterID pitchBipolar { "pitchBipolar", 3 };
+    // Retired in v0.5 with the pitch curve (replaced by the speed curve). Never reuse: "pitchRange", "pitchBipolar"
     inline const juce::ParameterID freeRate { "freeRate", 4 };
     inline const juce::ParameterID rate { "rate", 4 };
     inline const juce::ParameterID rateDivision { "rateDivision", 4 };
     inline const juce::ParameterID rateOverlap { "rateOverlap", 4 };
+    inline const juce::ParameterID endRate { "endRate", 5 };
+    inline const juce::ParameterID endRateDivision { "endRateDivision", 5 };
+    inline const juce::ParameterID maxSpeed { "maxSpeed", 5 };
+    inline const juce::ParameterID pitchFollow { "pitchFollow", 5 };
 }
 
 namespace ParamRanges
@@ -45,14 +48,15 @@ namespace ParamRanges
 
     inline constexpr float pingPongWidthDefaultPercent = 100.0f;
 
-    inline constexpr float pitchRangeMinSemitones = 1.0f;
-    inline constexpr float pitchRangeMaxSemitones = 48.0f;
-    inline constexpr float pitchRangeDefaultSemitones = 12.0f;
-    inline constexpr bool pitchBipolarDefault = false;
-
     // Rate uses the same ms range and division list as Slice
     inline constexpr bool freeRateDefault = false;
     inline constexpr bool rateOverlapDefault = false;
+
+    // End Rate uses the same ms range and division list as Slice; 1/32 = 62.5 ms at 120 BPM
+    inline constexpr float endRateDefaultMs = 62.5f;
+    inline constexpr int endRateDefaultDivisionIndex = 2; // 1/32
+    inline constexpr bool maxSpeedDefault = false;
+    inline constexpr bool pitchFollowDefault = false;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

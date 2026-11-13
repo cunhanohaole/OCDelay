@@ -1,6 +1,7 @@
 #include <Parameters.h>
 #include <PluginProcessor.h>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 using Catch::Matchers::WithinAbs;
@@ -100,9 +101,11 @@ TEST_CASE ("Parameters have PRD defaults", "[processor]")
     CHECK (getText (plugin, ParamIDs::length) == "8");
     CHECK (plugin.getLengthBars() == 8);
     CHECK_THAT (getPlainValue (plugin, ParamIDs::pingPongWidth), WithinAbs (100.0, 0.01));
-    CHECK_THAT (getPlainValue (plugin, ParamIDs::pitchRange), WithinAbs (12.0, 0.01));
-    CHECK (getPlainValue (plugin, ParamIDs::pitchBipolar) < 0.5f);
-    CHECK (plugin.getCurve (CurveTarget::pitch) == EnvelopeCurve::makeFlat (0.0f));
+    CHECK (plugin.getCurve (CurveTarget::speed) == EnvelopeCurve::makeFlat (0.0f));
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::endRate), WithinAbs (62.5, 0.01));
+    CHECK (getText (plugin, ParamIDs::endRateDivision) == "1/32");
+    CHECK (getPlainValue (plugin, ParamIDs::maxSpeed) < 0.5f);
+    CHECK (getPlainValue (plugin, ParamIDs::pitchFollow) < 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::freeRate) < 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::rateOverlap) < 0.5f);
     CHECK_THAT (getPlainValue (plugin, ParamIDs::rate), WithinAbs (500.0, 0.01));
@@ -127,6 +130,13 @@ TEST_CASE ("Feedback is retired", "[processor]")
     CHECK (plugin.getAPVTS().getParameter ("feedback") == nullptr);
 }
 
+TEST_CASE ("Pitch Range and Bipolar are retired", "[processor]")
+{
+    PluginProcessor plugin;
+    CHECK (plugin.getAPVTS().getParameter ("pitchRange") == nullptr);
+    CHECK (plugin.getAPVTS().getParameter ("pitchBipolar") == nullptr);
+}
+
 TEST_CASE ("Parameter ranges match PRD", "[processor]")
 {
     PluginProcessor plugin;
@@ -138,8 +148,8 @@ TEST_CASE ("Parameter ranges match PRD", "[processor]")
     CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::threshold.getParamID()).start, -60.0f));
     CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::threshold.getParamID()).end, 0.0f));
     CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::pingPongWidth.getParamID()).end, 100.0f));
-    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::pitchRange.getParamID()).start, 1.0f));
-    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::pitchRange.getParamID()).end, 48.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::endRate.getParamID()).start, 1.0f));
+    CHECK (juce::exactlyEqual (apvts.getParameterRange (ParamIDs::endRate.getParamID()).end, 2000.0f));
 }
 
 TEST_CASE ("Parameter text shows units", "[processor]")
@@ -150,7 +160,7 @@ TEST_CASE ("Parameter text shows units", "[processor]")
     CHECK (getText (plugin, ParamIDs::mix) == "50 %");
     CHECK (getText (plugin, ParamIDs::threshold) == "-30 dB");
     CHECK (getText (plugin, ParamIDs::pingPongWidth) == "100 %");
-    CHECK (getText (plugin, ParamIDs::pitchRange) == "12 st");
+    CHECK (getText (plugin, ParamIDs::endRate) == "62.5 ms");
 }
 
 TEST_CASE ("Supported bus layouts", "[processor]")
@@ -197,16 +207,17 @@ TEST_CASE ("State round-trips parameters and the curve", "[processor]")
     CHECK (restored.getCurveVersion() > versionBefore);
 }
 
-TEST_CASE ("State keeps the volume and pitch curves apart", "[processor]")
+TEST_CASE ("State keeps the volume and speed curves apart", "[processor]")
 {
     PluginProcessor source;
-    setPlainValue (source, ParamIDs::pitchRange, 24.0f);
-    setPlainValue (source, ParamIDs::pitchBipolar, 1.0f);
+    setPlainValue (source, ParamIDs::endRate, 30.0f);
+    setPlainValue (source, ParamIDs::maxSpeed, 1.0f);
+    setPlainValue (source, ParamIDs::pitchFollow, 1.0f);
     setPlainValue (source, ParamIDs::pingPongWidth, 40.0f);
 
-    auto pitch = EnvelopeCurve::makeFlat (0.5f);
-    pitch.addPoint (0.25f, 0.9f);
-    source.updateCurve (pitch, CurveTarget::pitch);
+    auto speed = EnvelopeCurve::makeFlat (0.5f);
+    speed.addPoint (0.25f, 0.9f);
+    source.updateCurve (speed, CurveTarget::speed);
 
     juce::MemoryBlock state;
     source.getStateInformation (state);
@@ -214,10 +225,11 @@ TEST_CASE ("State keeps the volume and pitch curves apart", "[processor]")
     PluginProcessor restored;
     restored.setStateInformation (state.getData(), (int) state.getSize());
 
-    CHECK (restored.getCurve (CurveTarget::pitch) == pitch);
+    CHECK (restored.getCurve (CurveTarget::speed) == speed);
     CHECK (restored.getCurve (CurveTarget::volume) == EnvelopeCurve {});
-    CHECK_THAT (getPlainValue (restored, ParamIDs::pitchRange), WithinAbs (24.0, 0.01));
-    CHECK (restored.isPitchBipolar());
+    CHECK_THAT (getPlainValue (restored, ParamIDs::endRate), WithinAbs (30.0, 0.01));
+    CHECK (getPlainValue (restored, ParamIDs::maxSpeed) > 0.5f);
+    CHECK (getPlainValue (restored, ParamIDs::pitchFollow) > 0.5f);
     CHECK_THAT (getPlainValue (restored, ParamIDs::pingPongWidth), WithinAbs (40.0, 0.01));
 }
 
@@ -244,7 +256,25 @@ TEST_CASE ("A v0.1 session loads cleanly", "[processor]")
     CHECK_THAT (getPlainValue (restored, ParamIDs::delayTime), WithinAbs (1234.0, 0.5));
     CHECK_THAT (getPlainValue (restored, ParamIDs::mix), WithinAbs (25.0, 0.01));
     CHECK (restored.getCurve() == EnvelopeCurve {});
-    CHECK (restored.getCurve (CurveTarget::pitch) == EnvelopeCurve::makeFlat (0.0f));
+    CHECK (restored.getCurve (CurveTarget::speed) == EnvelopeCurve::makeFlat (0.0f));
+}
+
+TEST_CASE ("A saved v0.4 pitch curve is ignored", "[processor]")
+{
+    PluginProcessor source;
+    auto state = source.getAPVTS().copyState();
+    juce::ValueTree pitchTree { "PitchCurve" };
+    pitchTree.appendChild (EnvelopeCurve::makeFlat (0.8f).toValueTree(), nullptr);
+    state.appendChild (pitchTree, nullptr);
+
+    juce::MemoryBlock block;
+    juce::AudioProcessor::copyXmlToBinary (*state.createXml(), block);
+
+    PluginProcessor restored;
+    restored.setStateInformation (block.getData(), (int) block.getSize());
+
+    CHECK (restored.getCurve (CurveTarget::speed) == EnvelopeCurve::makeFlat (0.0f));
+    CHECK_FALSE (restored.getAPVTS().state.getChildWithName ("PitchCurve").isValid());
 }
 
 TEST_CASE ("Garbage state is ignored", "[processor]")
@@ -339,6 +369,63 @@ TEST_CASE ("Repeats stop exactly at the end of Length", "[processor]")
     // The last repeat starts one slice before the end; the next would start on the end
     CHECK_THAT (output.getSample (0, end - 6000 + kPreRollSamples + 50), WithinAbs (0.5, 1.0e-4));
     CHECK (juce::exactlyEqual (output.getMagnitude (0, end, output.getNumSamples() - end), 0.0f));
+}
+
+TEST_CASE ("A 1-bar Length stops after exactly one bar", "[processor]")
+{
+    // 1 bar at 120 BPM in 4/4 = 2 s from the voice origin, at any sample rate
+    const auto sampleRate = GENERATE (44100.0, 48000.0, 96000.0);
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    setPlainValue (plugin, ParamIDs::length, 0.0f); // 1 bar
+    setPlainValue (plugin, ParamIDs::mix, 100.0f);
+    REQUIRE (plugin.getLengthBars() == 1);
+    plugin.prepareToPlay (sampleRate, kBlockSize);
+
+    const auto preRoll = juce::roundToInt (0.005 * sampleRate);
+    const auto hit = 1000;
+    const auto end = hit - preRoll + juce::roundToInt (2.0 * sampleRate);
+    juce::AudioBuffer<float> buffer (2, end + juce::roundToInt (2.0 * sampleRate));
+    buffer.clear();
+    for (int i = hit; i < hit + 100; ++i)
+        for (int channel = 0; channel < 2; ++channel)
+            buffer.setSample (channel, i, 0.5f);
+
+    processInBlocks (plugin, buffer);
+
+    // 500 ms slice: repeats start 0.5, 1.0 and 1.5 s after the hit, then nothing from the end on
+    CHECK_THAT (buffer.getSample (0, hit + juce::roundToInt (1.5 * sampleRate) + 50), WithinAbs (0.5, 1.0e-4));
+    CHECK (juce::exactlyEqual (buffer.getMagnitude (0, end, buffer.getNumSamples() - end), 0.0f));
+}
+
+TEST_CASE ("End Rate Division sets the top of the speed curve", "[processor]")
+{
+    // Sync on at 120 BPM: Slice 1/8 = 12000 samples, End Rate 1/16 = 6000 samples
+    PluginProcessor plugin;
+    useFlatCurve (plugin);
+    plugin.updateCurve (EnvelopeCurve::makeFlat (1.0f), CurveTarget::speed);
+    setPlainValue (plugin, ParamIDs::sync, 1.0f);
+    setPlainValue (plugin, ParamIDs::division, 8.0f); // 1/8
+    setPlainValue (plugin, ParamIDs::endRateDivision, 5.0f); // 1/16
+
+    constexpr int hit = 1000;
+    const auto output = processStereoHit (plugin, hit + 4 * 6000, hit);
+
+    CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (125.0, 1.0e-3));
+    for (int k = 1; k <= 3; ++k)
+        CHECK_THAT (output.getSample (0, hit + k * 6000 + 50), WithinAbs (0.5, 1.0e-4));
+}
+
+TEST_CASE ("End Rate follows Sync, and Max Speed overrides it", "[processor]")
+{
+    PluginProcessor plugin;
+    setPlainValue (plugin, ParamIDs::endRate, 250.0f);
+    processStereoHit (plugin, 512);
+    CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (250.0, 1.0e-3));
+
+    setPlainValue (plugin, ParamIDs::maxSpeed, 1.0f);
+    processStereoHit (plugin, 512);
+    CHECK_THAT (plugin.getEndIntervalMs(), WithinAbs (5.0, 1.0e-3));
 }
 
 TEST_CASE ("Mono input on a stereo output repeats on both sides", "[processor]")

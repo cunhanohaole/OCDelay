@@ -17,7 +17,7 @@ struct CurvePoint
     }
 };
 
-// Editable envelope over the repeater's tail, used for both volume and pitch. Message thread
+// Editable envelope over the repeater's tail, used for both volume and speed. Message thread
 // only: the audio thread reads a table filled from it (see fillTable), never the curve itself.
 //
 // Invariants: at least two points, the first at x = 0 and the last at x = 1, points sorted by
@@ -29,7 +29,7 @@ public:
     static constexpr float kMaxCurvature = 1.0f;
 
     EnvelopeCurve(); // straight ramp from 1 down to 0 (the default volume curve)
-    static EnvelopeCurve makeFlat (float y); // a constant value (the default pitch curve)
+    static EnvelopeCurve makeFlat (float y); // a constant value (the default speed curve)
 
     const std::vector<CurvePoint>& getPoints() const { return points; }
     int getNumPoints() const { return (int) points.size(); }

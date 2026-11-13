@@ -4,21 +4,40 @@
 namespace
 {
     constexpr int kTabRadioGroupId = 2001;
+
+    juce::RangedAudioParameter& getParameter (juce::AudioProcessorValueTreeState& apvts, const juce::ParameterID& id)
+    {
+        auto* parameter = apvts.getParameter (id.getParamID());
+        jassert (parameter != nullptr);
+        return *parameter;
+    }
 }
 
 CurveToolbar::CurveToolbar (juce::AudioProcessorValueTreeState& apvts)
-    : rangeAttachment (apvts, ParamIDs::pitchRange.getParamID(), rangeSlider),
-      bipolarAttachment (apvts, ParamIDs::pitchBipolar.getParamID(), bipolarButton)
+    : endRateAttachment (apvts, ParamIDs::endRate.getParamID(), endRateSlider),
+      endDivisionAttachment (apvts, ParamIDs::endRateDivision.getParamID(), endDivisionSlider),
+      maxSpeedAttachment (apvts, ParamIDs::maxSpeed.getParamID(), maxSpeedButton),
+      pitchFollowAttachment (apvts, ParamIDs::pitchFollow.getParamID(), pitchFollowButton),
+      syncAttachment (getParameter (apvts, ParamIDs::sync), [this] (float value) {
+          syncOn = value >= 0.5f;
+          updateSpeedControls();
+      }),
+      maxSpeedEnableAttachment (getParameter (apvts, ParamIDs::maxSpeed), [this] (float value) {
+          maxSpeedOn = value >= 0.5f;
+          updateSpeedControls();
+      })
 {
     setUpTab (volumeTab, CurveTarget::volume, juce::Button::ConnectedOnRight);
-    setUpTab (pitchTab, CurveTarget::pitch, juce::Button::ConnectedOnLeft);
+    setUpTab (speedTab, CurveTarget::speed, juce::Button::ConnectedOnLeft);
     volumeTab.setToggleState (true, juce::dontSendNotification);
 
     snapButton.setToggleState (true, juce::dontSendNotification);
-    snapButton.setTooltip ("Snap points to the beat grid (and to whole semitones on the Pitch tab)");
+    snapButton.setTooltip ("Snap points to the beat grid");
     addAndMakeVisible (snapButton);
 
-    setUpPitchControls();
+    setUpSpeedControls();
+    syncAttachment.sendInitialUpdate();
+    maxSpeedEnableAttachment.sendInitialUpdate();
 }
 
 void CurveToolbar::setUpTab (juce::TextButton& tab, CurveTarget tabTarget, int connectedEdges)
@@ -30,33 +49,44 @@ void CurveToolbar::setUpTab (juce::TextButton& tab, CurveTarget tabTarget, int c
     addAndMakeVisible (tab);
 }
 
-void CurveToolbar::setUpPitchControls()
+void CurveToolbar::setUpSpeedControls()
 {
-    rangeLabel.setText ("Range", juce::dontSendNotification);
-    rangeLabel.setJustificationType (juce::Justification::centredRight);
-    rangeSlider.setTitle ("Pitch range"); // accessibility name
-    bipolarButton.setTooltip ("Off: the curve goes from no change up to +Range. On: the middle is no change");
+    endRateLabel.setText ("End", juce::dontSendNotification);
+    endRateLabel.setJustificationType (juce::Justification::centredRight);
+    endRateSlider.setTitle ("End Rate"); // accessibility names
+    endDivisionSlider.setTitle ("End Rate");
+    maxSpeedButton.setTooltip ("The top of the speed curve is the fastest rate: repeats blur into a buzz");
+    pitchFollowButton.setTooltip ("Repeats play faster as they speed up, like tape, so the pitch rises with the speed");
 
-    addChildComponent (rangeLabel);
-    addChildComponent (rangeSlider);
-    addChildComponent (bipolarButton);
+    for (auto* component : std::initializer_list<juce::Component*> { &endRateLabel, &endRateSlider, &endDivisionSlider, &maxSpeedButton, &pitchFollowButton })
+        addChildComponent (component);
 }
 
 void CurveToolbar::setTarget (CurveTarget newTarget)
 {
-    (newTarget == CurveTarget::pitch ? pitchTab : volumeTab).setToggleState (true, juce::dontSendNotification);
+    (newTarget == CurveTarget::speed ? speedTab : volumeTab).setToggleState (true, juce::dontSendNotification);
 
-    const auto showPitch = newTarget == CurveTarget::pitch;
-    rangeLabel.setVisible (showPitch);
-    rangeSlider.setVisible (showPitch);
-    bipolarButton.setVisible (showPitch);
-
-    if (newTarget == target)
-        return;
-
+    const auto changed = newTarget != target;
     target = newTarget;
-    if (onTargetChange)
+    updateSpeedControls();
+
+    if (changed && onTargetChange)
         onTargetChange();
+}
+
+// Visible on the Speed tab only; End Rate follows Sync and is greyed out while Max Speed is on
+void CurveToolbar::updateSpeedControls()
+{
+    const auto showSpeed = target == CurveTarget::speed;
+    endRateLabel.setVisible (showSpeed);
+    maxSpeedButton.setVisible (showSpeed);
+    pitchFollowButton.setVisible (showSpeed);
+    endRateSlider.setVisible (showSpeed && ! syncOn);
+    endDivisionSlider.setVisible (showSpeed && syncOn);
+
+    endRateLabel.setEnabled (! maxSpeedOn);
+    endRateSlider.setEnabled (! maxSpeedOn);
+    endDivisionSlider.setEnabled (! maxSpeedOn);
 }
 
 void CurveToolbar::resized()
@@ -64,16 +94,20 @@ void CurveToolbar::resized()
     auto area = getLocalBounds();
     auto tabs = area.removeFromLeft (proportionOfWidth (kTabsWidth)).reduced (2);
     volumeTab.setBounds (tabs.removeFromLeft (tabs.getWidth() / 2));
-    pitchTab.setBounds (tabs);
+    speedTab.setBounds (tabs);
 
-    snapButton.setBounds (area.removeFromRight (proportionOfWidth (0.11f)));
-    layoutPitchControls (area.removeFromRight (proportionOfWidth (0.38f)));
+    snapButton.setBounds (area.removeFromRight (proportionOfWidth (0.1f)));
+    layoutSpeedControls (area.removeFromRight (proportionOfWidth (0.52f)));
 }
 
-// Range label, range bar and Bipolar, right-aligned next to Snap
-void CurveToolbar::layoutPitchControls (juce::Rectangle<int> area)
+// "End", the End Rate bar, Max Speed and Pitch Follow, right-aligned next to Snap
+void CurveToolbar::layoutSpeedControls (juce::Rectangle<int> area)
 {
-    bipolarButton.setBounds (area.removeFromRight (proportionOfWidth (0.13f)));
-    rangeSlider.setBounds (area.removeFromRight (proportionOfWidth (0.15f)).reduced (2, 4));
-    rangeLabel.setBounds (area);
+    pitchFollowButton.setBounds (area.removeFromRight (proportionOfWidth (0.15f)));
+    maxSpeedButton.setBounds (area.removeFromRight (proportionOfWidth (0.14f)));
+
+    const auto sliderArea = area.removeFromRight (proportionOfWidth (0.16f)).reduced (2, 4);
+    endRateSlider.setBounds (sliderArea);
+    endDivisionSlider.setBounds (sliderArea);
+    endRateLabel.setBounds (area);
 }

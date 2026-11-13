@@ -1,12 +1,14 @@
 #include "CurveEditor.h"
-#include "../dsp/PitchMapping.h"
+#include "../Parameters.h"
+#include "../dsp/SpeedMapping.h"
 
 namespace
 {
     constexpr float kPointRadius = 4.5f;
     constexpr float kPointHitRadius = 9.0f;
     constexpr float kSegmentHitDistance = 10.0f;
-    constexpr float kMinMarkerSpacing = 3.0f; // px; denser repeat markers are skipped
+    constexpr float kMinMarkerSpacing = 4.0f; // px; denser repeat markers merge into a band
+    constexpr int kMaxMarkers = 20000; // 5 ms repeats over 32 slow bars stay below this
     constexpr int kRefreshHz = 30;
 
     // Dragging the full plot height changes curvature by this much
@@ -40,7 +42,7 @@ void CurveEditor::paint (juce::Graphics& g)
     g.fillRoundedRectangle (plotArea, 4.0f);
 
     drawGrid (g);
-    drawPitchLabels (g);
+    drawSpeedLabels (g);
     drawRepeatMarkers (g);
     drawCurve (g);
     drawPoints (g);
@@ -65,51 +67,56 @@ void CurveEditor::drawGrid (juce::Graphics& g) const
         g.drawVerticalLine (juce::roundToInt (x), plotArea.getY(), plotArea.getBottom());
     }
 
-    // Volume: a 50 % guide. Pitch: the "no change" line, a little brighter.
-    const auto isPitch = toolbar.getTarget() == CurveTarget::pitch;
-    const auto guideY = isPitch ? toScreen (0.0f, getBaseline()).y : plotArea.getCentreY();
-    g.setColour (juce::Colours::white.withAlpha (isPitch ? 0.25f : 0.06f));
-    g.drawHorizontalLine (juce::roundToInt (guideY), plotArea.getX(), plotArea.getRight());
+    g.setColour (juce::Colours::white.withAlpha (0.06f));
+    g.drawHorizontalLine (juce::roundToInt (plotArea.getCentreY()), plotArea.getX(), plotArea.getRight());
 }
 
-// Semitone values at the top, bottom and "no change" line
-void CurveEditor::drawPitchLabels (juce::Graphics& g) const
+// The end rate at the top, the start rate at the bottom
+void CurveEditor::drawSpeedLabels (juce::Graphics& g) const
 {
-    if (toolbar.getTarget() != CurveTarget::pitch)
+    if (toolbar.getTarget() != CurveTarget::speed)
         return;
 
-    const auto range = juce::roundToInt (processor.getPitchRangeSemitones());
-    const auto bipolar = processor.isPitchBipolar();
-    const auto labelArea = plotArea.reduced (4.0f, 2.0f);
+    const auto labelArea = plotArea.reduced (kPointHitRadius + 4.0f, 2.0f);
     const auto labelHeight = 14.0f;
 
     g.setColour (juce::Colours::white.withAlpha (0.5f));
     g.setFont (12.0f);
-    g.drawText ("+" + juce::String (range) + " st", labelArea.withHeight (labelHeight), juce::Justification::topLeft);
-    g.drawText (bipolar ? juce::String::fromUTF8 ("\xe2\x88\x92") + juce::String (range) + " st" : "0 st",
-        labelArea.withTrimmedTop (labelArea.getHeight() - labelHeight), juce::Justification::bottomLeft);
-
-    if (bipolar)
-    {
-        // Right of the first point, just above the "no change" line
-        const auto zeroArea = labelArea.withTrimmedLeft (kPointHitRadius + 4.0f).withHeight (labelHeight);
-        g.drawText ("0 st", zeroArea.withY (plotArea.getCentreY() - labelHeight - 1.0f), juce::Justification::left);
-    }
+    g.drawText (getEndRateLabel(), labelArea.withHeight (labelHeight), juce::Justification::topLeft);
+    g.drawText (getStartRateLabel(), labelArea.withTrimmedTop (labelArea.getHeight() - labelHeight), juce::Justification::bottomLeft);
 }
 
+// Walks the repeat starts the speed curve produces, as the engine does
 void CurveEditor::drawRepeatMarkers (juce::Graphics& g) const
 {
-    const auto sliceFraction = getSliceFraction();
-    if (sliceFraction <= 0.0f || sliceFraction * plotArea.getWidth() < kMinMarkerSpacing)
+    const auto startFraction = getIntervalFraction (processor.getRepeatIntervalMs());
+    const auto endFraction = getIntervalFraction (processor.getEndIntervalMs());
+    if (startFraction <= 0.0f || endFraction <= 0.0f)
         return;
 
     g.setColour (getLookAndFeel().findColour (juce::Slider::thumbColourId).withAlpha (0.25f));
 
-    for (float x = sliceFraction; x < 1.0f; x += sliceFraction)
+    auto previousX = -1.0f;
+    auto fraction = getNextRepeatFraction (0.0, startFraction, endFraction);
+
+    for (int count = 0; fraction < 1.0 && count < kMaxMarkers; ++count)
     {
-        const auto screenX = toScreen (x, 0.0f).x;
-        g.drawLine (screenX, plotArea.getBottom() - plotArea.getHeight() * 0.08f, screenX, plotArea.getBottom(), 1.5f);
+        const auto screenX = toScreen ((float) fraction, 0.0f).x;
+        drawRepeatMark (g, screenX, previousX);
+        previousX = screenX;
+        fraction = getNextRepeatFraction (fraction, startFraction, endFraction);
     }
+}
+
+// A line per repeat; repeats closer together than the minimum spacing fill a band instead
+void CurveEditor::drawRepeatMark (juce::Graphics& g, float screenX, float previousScreenX) const
+{
+    const auto top = plotArea.getBottom() - plotArea.getHeight() * 0.08f;
+
+    if (previousScreenX >= 0.0f && screenX - previousScreenX < kMinMarkerSpacing)
+        g.fillRect (juce::Rectangle<float>::leftTopRightBottom (previousScreenX, top, juce::jmax (screenX, previousScreenX + 1.0f), plotArea.getBottom()));
+    else
+        g.drawLine (screenX, top, screenX, plotArea.getBottom(), 1.5f);
 }
 
 void CurveEditor::drawCurve (juce::Graphics& g) const
@@ -126,7 +133,7 @@ void CurveEditor::drawCurve (juce::Graphics& g) const
 
     const auto colour = getLookAndFeel().findColour (juce::Slider::thumbColourId);
 
-    const auto baselineY = toScreen (0.0f, getBaseline()).y;
+    const auto baselineY = plotArea.getBottom();
     juce::Path fill (path);
     fill.lineTo (plotArea.getRight(), baselineY);
     fill.lineTo (plotArea.getX(), baselineY);
@@ -199,7 +206,7 @@ void CurveEditor::mouseDrag (const juce::MouseEvent& event)
 {
     if (draggedPoint >= 0)
     {
-        curve.movePoint (draggedPoint, snapX (toCurveX (event.position.x)), snapY (toCurveY (event.position.y)));
+        curve.movePoint (draggedPoint, snapX (toCurveX (event.position.x)), toCurveY (event.position.y));
         commitCurve();
     }
     else if (bentSegment >= 0)
@@ -220,7 +227,7 @@ void CurveEditor::mouseDoubleClick (const juce::MouseEvent& event)
     if (!plotArea.contains (event.position) || findPointAt (event.position) >= 0)
         return;
 
-    if (curve.addPoint (snapX (toCurveX (event.position.x)), snapY (toCurveY (event.position.y))) >= 0)
+    if (curve.addPoint (snapX (toCurveX (event.position.x)), toCurveY (event.position.y)) >= 0)
         commitCurve();
 }
 
@@ -262,20 +269,20 @@ void CurveEditor::timerCallback()
     }
 
     const auto playhead = processor.getPlayheadPosition();
-    const auto sliceFraction = getSliceFraction();
+    const auto sliceFraction = getIntervalFraction (processor.getRepeatIntervalMs());
+    const auto endFraction = getIntervalFraction (processor.getEndIntervalMs());
     const auto totalBeats = getTotalBeats();
-    const auto pitchRange = processor.getPitchRangeSemitones();
-    const auto bipolar = processor.isPitchBipolar();
+    const auto rateLabels = getStartRateLabel() + "|" + getEndRateLabel();
 
     if (!juce::exactlyEqual (playhead, shownPlayhead) || !juce::exactlyEqual (sliceFraction, shownSliceFraction)
-        || !juce::exactlyEqual (totalBeats, shownTotalBeats) || !juce::exactlyEqual (pitchRange, shownPitchRange)
-        || bipolar != shownBipolar)
+        || !juce::exactlyEqual (endFraction, shownEndFraction) || !juce::exactlyEqual (totalBeats, shownTotalBeats)
+        || rateLabels != shownRateLabels)
     {
         shownPlayhead = playhead;
         shownSliceFraction = sliceFraction;
+        shownEndFraction = endFraction;
         shownTotalBeats = totalBeats;
-        shownPitchRange = pitchRange;
-        shownBipolar = bipolar;
+        shownRateLabels = rateLabels;
         repaint();
     }
 }
@@ -303,26 +310,6 @@ float CurveEditor::snapX (float x) const
 
     const auto totalBeats = getTotalBeats();
     return std::round (x * totalBeats) / totalBeats;
-}
-
-// Pitch tab only: whole semitones at the current Range and Bipolar setting
-float CurveEditor::snapY (float y) const
-{
-    if (!toolbar.isSnapOn() || toolbar.getTarget() != CurveTarget::pitch)
-        return y;
-
-    const auto range = processor.getPitchRangeSemitones();
-    const auto bipolar = processor.isPitchBipolar();
-    const auto semitones = std::round (PitchMapping::toSemitones (y, range, bipolar));
-    return juce::jlimit (0.0f, 1.0f, PitchMapping::toCurveValue (semitones, range, bipolar));
-}
-
-float CurveEditor::getBaseline() const
-{
-    if (toolbar.getTarget() == CurveTarget::pitch && processor.isPitchBipolar())
-        return 0.5f;
-
-    return 0.0f;
 }
 
 int CurveEditor::findPointAt (juce::Point<float> position) const
@@ -361,9 +348,49 @@ float CurveEditor::getTotalBeats() const
     return juce::jmax (1.0f, (float) processor.getLengthBars() * processor.getBeatsPerBar());
 }
 
-float CurveEditor::getSliceFraction() const
+float CurveEditor::getIntervalFraction (float intervalMs) const
 {
     const auto msPerBeat = 60000.0f / juce::jmax (1.0f, processor.getHostBpm());
     const auto lengthMs = getTotalBeats() * msPerBeat;
-    return processor.getRepeatIntervalMs() / lengthMs;
+    return intervalMs / lengthMs;
+}
+
+// The next repeat starts one interval later, the interval read from the speed curve here
+double CurveEditor::getNextRepeatFraction (double fraction, float startFraction, float endFraction) const
+{
+    const auto curveValue = processor.getCurve (CurveTarget::speed).evaluate ((float) fraction);
+    return fraction + SpeedMapping::intervalAt (startFraction, endFraction, curveValue);
+}
+
+namespace
+{
+    juce::String getParameterText (juce::AudioProcessorValueTreeState& apvts, const juce::ParameterID& id)
+    {
+        return apvts.getParameter (id.getParamID())->getCurrentValueAsText();
+    }
+
+    bool isSwitchOn (juce::AudioProcessorValueTreeState& apvts, const juce::ParameterID& id)
+    {
+        return apvts.getRawParameterValue (id.getParamID())->load() >= 0.5f;
+    }
+}
+
+juce::String CurveEditor::getStartRateLabel() const
+{
+    auto& apvts = processor.getAPVTS();
+    const auto sync = isSwitchOn (apvts, ParamIDs::sync);
+
+    if (isSwitchOn (apvts, ParamIDs::freeRate))
+        return getParameterText (apvts, sync ? ParamIDs::rateDivision : ParamIDs::rate);
+
+    return getParameterText (apvts, sync ? ParamIDs::division : ParamIDs::delayTime);
+}
+
+juce::String CurveEditor::getEndRateLabel() const
+{
+    auto& apvts = processor.getAPVTS();
+    if (isSwitchOn (apvts, ParamIDs::maxSpeed))
+        return "Max";
+
+    return getParameterText (apvts, isSwitchOn (apvts, ParamIDs::sync) ? ParamIDs::endRateDivision : ParamIDs::endRate);
 }

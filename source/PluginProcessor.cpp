@@ -1,15 +1,19 @@
 #include "PluginProcessor.h"
 #include "Parameters.h"
 #include "TempoSync.h"
+#include "dsp/SpeedMapping.h"
 #include "PluginEditor.h"
 
 namespace
 {
     const juce::Identifier stateTag { "OCDelayState" };
 
-    // The volume curve is saved as a bare "Curve" child (v0.2); the pitch curve is wrapped
+    // The volume curve is saved as a bare "Curve" child (v0.2); the speed curve is wrapped
     // in this child so the two can be told apart
-    const juce::Identifier pitchCurveTag { "PitchCurve" };
+    const juce::Identifier speedCurveTag { "SpeedCurve" };
+
+    // v0.3-v0.4 saved a pitch curve here. It's dropped on load: speed curves mean something else.
+    const juce::Identifier retiredPitchCurveTag { "PitchCurve" };
 
     bool isMonoOrStereo (const juce::AudioChannelSet& set)
     {
@@ -32,18 +36,20 @@ PluginProcessor::PluginProcessor()
     length = apvts.getRawParameterValue (ParamIDs::length.getParamID());
     threshold = apvts.getRawParameterValue (ParamIDs::threshold.getParamID());
     pingPongWidth = apvts.getRawParameterValue (ParamIDs::pingPongWidth.getParamID());
-    pitchRange = apvts.getRawParameterValue (ParamIDs::pitchRange.getParamID());
-    pitchBipolar = apvts.getRawParameterValue (ParamIDs::pitchBipolar.getParamID());
     freeRate = apvts.getRawParameterValue (ParamIDs::freeRate.getParamID());
     rateMs = apvts.getRawParameterValue (ParamIDs::rate.getParamID());
     rateDivision = apvts.getRawParameterValue (ParamIDs::rateDivision.getParamID());
     rateOverlap = apvts.getRawParameterValue (ParamIDs::rateOverlap.getParamID());
+    endRateMs = apvts.getRawParameterValue (ParamIDs::endRate.getParamID());
+    endRateDivision = apvts.getRawParameterValue (ParamIDs::endRateDivision.getParamID());
+    maxSpeed = apvts.getRawParameterValue (ParamIDs::maxSpeed.getParamID());
+    pitchFollow = apvts.getRawParameterValue (ParamIDs::pitchFollow.getParamID());
 
     jassert (delayTimeMs != nullptr && mixPercent != nullptr
              && pingPong != nullptr && sync != nullptr && division != nullptr
              && length != nullptr && threshold != nullptr && pingPongWidth != nullptr
-             && pitchRange != nullptr && pitchBipolar != nullptr && freeRate != nullptr
-             && rateMs != nullptr && rateDivision != nullptr && rateOverlap != nullptr);
+             && freeRate != nullptr && rateMs != nullptr && rateDivision != nullptr && rateOverlap != nullptr
+             && endRateMs != nullptr && endRateDivision != nullptr && maxSpeed != nullptr && pitchFollow != nullptr);
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -138,7 +144,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     copyMonoInputToStereo (buffer);
     updateHostTiming();
     pushParametersToEngine();
-    repeaterEngine.process (buffer, volumeCurve.read(), pitchCurve.read());
+    repeaterEngine.process (buffer, volumeCurve.read(), speedCurve.read());
     uiPlayhead.store (repeaterEngine.getPlayheadPosition());
 }
 
@@ -159,7 +165,11 @@ void PluginProcessor::pushParametersToEngine()
     repeaterEngine.setMix (mixPercent->load() / 100.0f);
     repeaterEngine.setPingPong (pingPong->load() >= 0.5f);
     repeaterEngine.setPingPongWidth (pingPongWidth->load() / 100.0f);
-    repeaterEngine.setPitchRange (pitchRange->load(), pitchBipolar->load() >= 0.5f);
+
+    const auto endIntervalMs = computeEndRateMs();
+    effectiveEndIntervalMs.store (endIntervalMs);
+    repeaterEngine.setEndIntervalSamples (endIntervalMs * currentSampleRate / 1000.0);
+    repeaterEngine.setPitchFollow (pitchFollow->load() >= 0.5f);
 }
 
 // Sync off: the Slice knob in ms. Sync on: the note division at the host tempo.
@@ -178,6 +188,18 @@ float PluginProcessor::computeRateMs()
         return rateMs->load();
 
     return (float) TempoSync::divisionToMs (juce::roundToInt (rateDivision->load()), hostBpm);
+}
+
+// Top of the speed curve: Max, or End Rate following the same Sync rule as Slice and Rate
+float PluginProcessor::computeEndRateMs()
+{
+    if (maxSpeed->load() >= 0.5f)
+        return (float) SpeedMapping::kMaxSpeedIntervalMs;
+
+    if (sync->load() < 0.5f)
+        return endRateMs->load();
+
+    return (float) TempoSync::divisionToMs (juce::roundToInt (endRateDivision->load()), hostBpm);
 }
 
 void PluginProcessor::updateHostTiming()
@@ -211,7 +233,7 @@ int PluginProcessor::getLengthBars() const
 
 const EnvelopeCurve& PluginProcessor::getCurve (CurveTarget target) const
 {
-    return target == CurveTarget::pitch ? pitchCurve.getCurve() : volumeCurve.getCurve();
+    return target == CurveTarget::speed ? speedCurve.getCurve() : volumeCurve.getCurve();
 }
 
 void PluginProcessor::updateCurve (const EnvelopeCurve& newCurve, CurveTarget target)
@@ -222,7 +244,7 @@ void PluginProcessor::updateCurve (const EnvelopeCurve& newCurve, CurveTarget ta
 
 CurveSlot& PluginProcessor::getSlot (CurveTarget target)
 {
-    return target == CurveTarget::pitch ? pitchCurve : volumeCurve;
+    return target == CurveTarget::speed ? speedCurve : volumeCurve;
 }
 
 // Mono in, stereo out: both sides start from the same signal, so the plain delay is
@@ -271,13 +293,13 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
 void PluginProcessor::appendCurveTrees (juce::ValueTree& state) const
 {
     state.removeChild (state.getChildWithName (EnvelopeCurve::treeType), nullptr);
-    state.removeChild (state.getChildWithName (pitchCurveTag), nullptr);
+    state.removeChild (state.getChildWithName (speedCurveTag), nullptr);
 
-    juce::ValueTree pitchTree { pitchCurveTag };
-    pitchTree.appendChild (pitchCurve.getCurve().toValueTree(), nullptr);
+    juce::ValueTree speedTree { speedCurveTag };
+    speedTree.appendChild (speedCurve.getCurve().toValueTree(), nullptr);
 
     state.appendChild (volumeCurve.getCurve().toValueTree(), nullptr);
-    state.appendChild (pitchTree, nullptr);
+    state.appendChild (speedTree, nullptr);
 }
 
 // Takes the curve children out of state so APVTS only sees parameters.
@@ -285,12 +307,13 @@ void PluginProcessor::appendCurveTrees (juce::ValueTree& state) const
 void PluginProcessor::restoreCurves (juce::ValueTree& state)
 {
     const auto volumeTree = state.getChildWithName (EnvelopeCurve::treeType);
-    const auto pitchTree = state.getChildWithName (pitchCurveTag);
+    const auto speedTree = state.getChildWithName (speedCurveTag);
     state.removeChild (volumeTree, nullptr);
-    state.removeChild (pitchTree, nullptr);
+    state.removeChild (speedTree, nullptr);
+    state.removeChild (state.getChildWithName (retiredPitchCurveTag), nullptr);
 
     updateCurve (EnvelopeCurve::fromValueTree (volumeTree), CurveTarget::volume);
-    updateCurve (EnvelopeCurve::fromValueTree (pitchTree.getChildWithName (EnvelopeCurve::treeType), defaultPitchCurve()), CurveTarget::pitch);
+    updateCurve (EnvelopeCurve::fromValueTree (speedTree.getChildWithName (EnvelopeCurve::treeType), defaultSpeedCurve()), CurveTarget::speed);
 }
 
 //==============================================================================

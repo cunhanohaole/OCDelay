@@ -4,8 +4,8 @@
 #include "CurveToolbar.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 
-// Draws and edits the volume and pitch curves over the repeater's Length (one tab each).
-//   drag a point            move it (Snap: beats, and whole semitones on the Pitch tab)
+// Draws and edits the volume and speed curves over the repeater's Length (one tab each).
+//   drag a point            move it (Snap: to beats)
 //   double-click empty      add a point
 //   right-click a point     delete it
 //   drag a segment up/down  bend it
@@ -36,8 +36,6 @@ private:
     float toCurveX (float screenX) const;
     float toCurveY (float screenY) const;
     float snapX (float x) const;
-    float snapY (float y) const;
-    float getBaseline() const; // curve value drawn as the floor: 0, or "no change" for pitch
     int findPointAt (juce::Point<float> position) const;
     int findSegmentAt (juce::Point<float> position) const;
 
@@ -48,14 +46,20 @@ private:
 
     // Drawing
     void drawGrid (juce::Graphics&) const;
-    void drawPitchLabels (juce::Graphics&) const;
+    void drawSpeedLabels (juce::Graphics&) const;
+    void drawRepeatMark (juce::Graphics&, float screenX, float previousScreenX) const;
     void drawRepeatMarkers (juce::Graphics&) const;
     void drawCurve (juce::Graphics&) const;
     void drawPoints (juce::Graphics&) const;
     void drawPlayhead (juce::Graphics&) const;
 
     float getTotalBeats() const;
-    float getSliceFraction() const; // time between repeat starts as a fraction of Length
+    float getIntervalFraction (float intervalMs) const; // an interval as a fraction of Length
+    double getNextRepeatFraction (double fraction, float startFraction, float endFraction) const;
+
+    // Speed-curve axis labels: the start rate (Slice or Rate) and the end rate (End Rate or Max)
+    juce::String getStartRateLabel() const;
+    juce::String getEndRateLabel() const;
 
     PluginProcessor& processor;
     EnvelopeCurve curve; // local copy, kept in sync with the processor
@@ -72,9 +76,9 @@ private:
     // Last values drawn, so the timer only repaints when something changed
     float shownPlayhead = -1.0f;
     float shownSliceFraction = 0.0f;
+    float shownEndFraction = 0.0f;
     float shownTotalBeats = 0.0f;
-    float shownPitchRange = 0.0f;
-    bool shownBipolar = false;
+    juce::String shownRateLabels;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CurveEditor)
 };
