@@ -29,8 +29,8 @@ TEST_CASE ("Divisions run from shortest to longest", "[TempoSync]")
 
 TEST_CASE ("Default division matches the ms default at the fallback tempo", "[TempoSync]")
 {
-    CHECK (juce::String (TempoSync::divisions[(size_t) TempoSync::defaultDivisionIndex].name) == "1/4");
-    CHECK_THAT (TempoSync::divisionToMs (TempoSync::defaultDivisionIndex, TempoSync::fallbackBpm), WithinAbs (500.0, 1.0e-6));
+    CHECK (juce::String (TempoSync::divisions[(size_t) TempoSync::defaultDivisionIndex].name) == "1/8D");
+    CHECK_THAT (TempoSync::divisionToMs (TempoSync::defaultDivisionIndex, TempoSync::fallbackBpm), WithinAbs (375.0, 1.0e-6));
 }
 
 TEST_CASE ("Out-of-range division indices are clamped", "[TempoSync]")

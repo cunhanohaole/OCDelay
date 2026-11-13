@@ -225,11 +225,23 @@ void PluginProcessor::updateHostTiming()
 
             if (const auto signature = position->getTimeSignature(); signature.hasValue() && signature->numerator > 0 && signature->denominator > 0)
                 hostBeatsPerBar = signature->numerator * 4.0 / signature->denominator;
+
+            stopWhenTransportStops (position->getIsPlaying());
         }
     }
 
     uiBpm.store ((float) hostBpm);
     uiBeatsPerBar.store ((float) hostBeatsPerBar);
+}
+
+// Stopping the host's transport kills the repeats, like pressing Stop. Only the moment it stops
+// counts: hosts keep processing while stopped, so hits played live still repeat.
+void PluginProcessor::stopWhenTransportStops (bool hostIsPlaying)
+{
+    if (hostWasPlaying && ! hostIsPlaying)
+        repeaterEngine.stop();
+
+    hostWasPlaying = hostIsPlaying;
 }
 
 double PluginProcessor::computeLengthSeconds (double bpm, double beatsPerBar) const
@@ -324,7 +336,7 @@ void PluginProcessor::restoreCurves (juce::ValueTree& state)
     state.removeChild (speedTree, nullptr);
     state.removeChild (state.getChildWithName (retiredPitchCurveTag), nullptr);
 
-    updateCurve (EnvelopeCurve::fromValueTree (volumeTree), CurveTarget::volume);
+    updateCurve (EnvelopeCurve::fromValueTree (volumeTree, defaultVolumeCurve()), CurveTarget::volume);
     updateCurve (EnvelopeCurve::fromValueTree (speedTree.getChildWithName (EnvelopeCurve::treeType), defaultSpeedCurve()), CurveTarget::speed);
 }
 
