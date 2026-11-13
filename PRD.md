@@ -77,7 +77,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 ## Speed
 - The start rate is Slice (Free Rate off) or Rate (Free Rate on). The end rate is End Rate / End Rate Division (following Sync, like Slice and Rate), or Max when Max Speed is on.
 - Max is a 5 ms interval (about 200 repeats per second), fast enough that the repeats blur into a pitched buzz. [NEED: confirm by ear]
-- The curve's value v (0 at the bottom, 1 at the top) sets the interval on a log scale: interval = start × (end ÷ start)^v. A straight line therefore sounds like an even acceleration.
+- The curve's value v (0 at the bottom, 1 at the top) sets the interval in equal milliseconds: interval = start + (end − start) × v. A straight line therefore stays slow for most of the tail and rushes at the end, like a bouncing ball. Bend a segment upwards for an earlier rush.
   - An end rate longer than the start rate makes the repeats slow down instead; nothing else changes.
 - Each repeat's interval is the curve's value at the moment it starts: repeat k+1 starts one interval after repeat k. The first repeat starts one interval after the capture start.
 - A sped-up repeat follows the Free Rate rules: with Overlap off it ends where the next begins (3 ms fade-out, or half the interval when that's shorter); with Overlap on repeats stack, up to 16 at once. When Free Rate is off, the speed curve behaves as Free Rate with Overlap off.
