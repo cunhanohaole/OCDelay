@@ -113,6 +113,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::maxSpeed, "Max Speed", ParamRanges::maxSpeedDefault));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::pitchFollow, "Pitch Follow", ParamRanges::pitchFollowDefault));
     layout.add (std::make_unique<juce::AudioParameterBool> (ParamIDs::stop, "Stop", false)); // momentary
+    layout.add (makePercentParameter (ParamIDs::boost, "Boost", 100.0f, ParamRanges::boostDefaultPercent));
 
     return layout;
 }

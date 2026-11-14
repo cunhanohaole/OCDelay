@@ -44,6 +44,9 @@ public:
     void setEndIntervalSamples (double newEndIntervalSamples);
     void setPitchFollow (bool shouldFollow);
 
+    // Extra wet gain following the speed curve: 0 = none, 1 = twice as loud at the curve's top
+    void setBoost (float newBoost);
+
     // Both tables are sampled evenly from t = 0 to t = length inclusive.
     // volumeTable: wet gain. speedTable: normalised speed-curve values (empty = no speed change).
     void process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> speedTable = {});
@@ -76,6 +79,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mix;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> pingPongAmount;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> pingPongWidth { 1.0f };
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> boost;
 
     std::atomic<float> playheadPosition { -1.0f };
 

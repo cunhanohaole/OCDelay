@@ -123,6 +123,7 @@ TEST_CASE ("Parameters have PRD defaults", "[processor]")
     CHECK (getText (plugin, ParamIDs::endRateDivision) == "1/32");
     CHECK (getPlainValue (plugin, ParamIDs::maxSpeed) > 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::pitchFollow) < 0.5f);
+    CHECK_THAT (getPlainValue (plugin, ParamIDs::boost), WithinAbs (0.0, 0.01));
     CHECK (getPlainValue (plugin, ParamIDs::freeRate) < 0.5f);
     CHECK (getPlainValue (plugin, ParamIDs::rateOverlap) < 0.5f);
     CHECK_THAT (getPlainValue (plugin, ParamIDs::rate), WithinAbs (375.0, 0.01));

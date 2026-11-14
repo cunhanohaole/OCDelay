@@ -248,7 +248,7 @@ StereoFrame RepeatVoice::pan (float left, float right, int repeatIndex, const Co
     return { left + (pingPong[0] - left) * amount, right + (pingPong[1] - right) * amount };
 }
 
-// Volume curve, the fade-out ending exactly at length, and the retrigger fade
+// Volume curve, speed boost, the fade-out ending exactly at length, and the retrigger fade
 float RepeatVoice::sharedGain (const Context& context) const
 {
     const auto normalisedTime = static_cast<double> (position) / static_cast<double> (settings.lengthSamples);
@@ -258,7 +258,17 @@ float RepeatVoice::sharedGain (const Context& context) const
     // Counts down from (n-1)/n to exactly 0 on the last sample
     const auto restartFade = restartFading ? static_cast<float> (restartFadeRemaining - 1) / static_cast<float> (restartFadeSamples) : 1.0f;
 
-    return lookUp (context.volumeTable, normalisedTime) * juce::jmax (0.0f, endFade) * restartFade;
+    return lookUp (context.volumeTable, normalisedTime) * boostGain (normalisedTime, context) * juce::jmax (0.0f, endFade) * restartFade;
+}
+
+// Rises with the speed curve, so the fast part gets louder: 1 + amount at the top of the curve.
+// Without a speed change there is no fast part, so no boost.
+float RepeatVoice::boostGain (double normalisedTime, const Context& context) const
+{
+    if (context.speedTable.empty() || context.endIntervalSamples <= 0.0)
+        return 1.0f;
+
+    return 1.0f + context.boostAmount * lookUp (context.speedTable, normalisedTime);
 }
 
 void RepeatVoice::advance()

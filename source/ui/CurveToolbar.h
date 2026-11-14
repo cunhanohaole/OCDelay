@@ -3,7 +3,7 @@
 #include "../curve/CurveSlot.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
-// Top bar of the curve editor: Volume / Speed tabs, the End Rate, Max Speed and Pitch Follow
+// Top bar of the curve editor: Volume / Speed tabs, the Boost, End Rate, Max Speed and Pitch Follow
 // controls (shown on the Speed tab only) and the Snap toggle.
 class CurveToolbar : public juce::Component
 {
@@ -41,10 +41,13 @@ private:
     juce::Slider endDivisionSlider { juce::Slider::LinearBar, juce::Slider::TextBoxLeft };
     juce::ToggleButton maxSpeedButton { "Max Speed" };
     juce::ToggleButton pitchFollowButton { "Pitch Follow" };
+    juce::Label boostLabel;
+    juce::Slider boostSlider { juce::Slider::LinearBar, juce::Slider::TextBoxLeft };
     juce::AudioProcessorValueTreeState::SliderAttachment endRateAttachment;
     juce::AudioProcessorValueTreeState::SliderAttachment endDivisionAttachment;
     juce::AudioProcessorValueTreeState::ButtonAttachment maxSpeedAttachment;
     juce::AudioProcessorValueTreeState::ButtonAttachment pitchFollowAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment boostAttachment;
 
     // Follow Sync and Max Speed from any source (button, automation, preset) on the message thread
     juce::ParameterAttachment syncAttachment;
