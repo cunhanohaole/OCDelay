@@ -5,6 +5,7 @@
 #include "ui/LengthSelector.h"
 #include "ui/ParameterKnob.h"
 #include "ui/StopButton.h"
+#include "ui/sagaz/SagazLogo.h"
 #include "ui/sagaz/SagazLookAndFeel.h"
 
 #if JUCE_DEBUG
@@ -16,7 +17,7 @@ class PluginEditor : public juce::AudioProcessorEditor
 public:
     // Fixed size, laid out in px from the Sagaz UI system's OCDelay mockup
     static constexpr int kWidth = 860;
-    static constexpr int kHeight = 496;
+    static constexpr int kHeight = 490;
 
     explicit PluginEditor (PluginProcessor&);
     ~PluginEditor() override;
@@ -25,16 +26,18 @@ public:
     void resized() override;
 
 private:
+    void layoutHeader();
     void layoutControlStrip();
     void layoutLengthColumn (juce::Rectangle<int> column);
     void layoutSwitches (juce::Rectangle<int> column);
-    void drawTitle (juce::Graphics&) const;
+    void drawHeaderText (juce::Graphics&) const;
     void showDivisionKnobs (bool shouldShowDivisions);
     void enableRateControls (bool freeRateOn);
 
     // Declared first so it outlives every component that uses it
     SagazLookAndFeel lookAndFeel;
 
+    SagazLogo logo;
     CurveEditor curveEditor;
 
     // Slice (ms) and Division share one slot; Sync decides which is shown
@@ -63,7 +66,9 @@ private:
     juce::ParameterAttachment syncVisibilityAttachment;
     juce::ParameterAttachment freeRateEnableAttachment;
 
-    // Painted, not a component: the divider before the switches
+    // Painted, not components: the header's divider and text (name, version), the divider before the switches
+    juce::Rectangle<int> headerDivider;
+    juce::Rectangle<int> headerText;
     juce::Rectangle<int> divider;
 
 #if JUCE_DEBUG
