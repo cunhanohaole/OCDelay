@@ -21,7 +21,7 @@ ctest --test-dir Builds -C Debug --output-on-failure
 Builds default to Debug. Use `--config Release` when judging CPU use or audio dropouts.
 
 ## Project Identity (don't change without asking)
-- Company `Sagaz`, bundle ID `com.sagaz.ocdelay`, manufacturer code `Sagz`, plugin code `OcDl`. Changing the codes breaks saved DAW sessions.
+- Company `Sagaz Audio`, bundle ID `com.sagaz.ocdelay`, manufacturer code `Sagz`, plugin code `OcDl`. Changing the codes breaks saved DAW sessions.
 - CLAP, Intel IPP, Linux CI, and code signing / notarization are commented out in `CMakeLists.txt` and `.github/workflows/build_and_test.yml`. Re-enable signing before distributing.
 
 ## Architecture

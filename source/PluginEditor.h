@@ -16,7 +16,7 @@ class PluginEditor : public juce::AudioProcessorEditor
 public:
     // Fixed size, laid out in px from the Sagaz UI system's OCDelay mockup
     static constexpr int kWidth = 860;
-    static constexpr int kHeight = 460;
+    static constexpr int kHeight = 496;
 
     explicit PluginEditor (PluginProcessor&);
     ~PluginEditor() override;
@@ -28,7 +28,7 @@ private:
     void layoutControlStrip();
     void layoutLengthColumn (juce::Rectangle<int> column);
     void layoutSwitches (juce::Rectangle<int> column);
-    void drawLogo (juce::Graphics&) const;
+    void drawTitle (juce::Graphics&) const;
     void showDivisionKnobs (bool shouldShowDivisions);
     void enableRateControls (bool freeRateOn);
 
@@ -63,9 +63,8 @@ private:
     juce::ParameterAttachment syncVisibilityAttachment;
     juce::ParameterAttachment freeRateEnableAttachment;
 
-    // Painted, not components: the strip's two dividers and the plugin name
-    std::array<juce::Rectangle<int>, 2> dividers;
-    juce::Rectangle<int> logoArea;
+    // Painted, not a component: the divider before the switches
+    juce::Rectangle<int> divider;
 
 #if JUCE_DEBUG
     void setUpInspector();

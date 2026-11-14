@@ -1,4 +1,4 @@
-# PRD: OCDelay v0.9 — Repeater with speed curve, free rate, Stop and Boost
+# PRD: OCDelay v0.10 — Repeater with speed curve, free rate, Stop and Boost
 
 ## Goal
 OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the repeat speed across that time, so a single hit can turn into a riser. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
@@ -12,6 +12,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - v0.7 changes the defaults (Sync and Ping-Pong on, 4 bars, 1/8D, Max Speed on, a flat volume curve) and stops the repeats when the host's transport stops.
 - v0.8 adds Boost: the fast part of a speed-curve riser can be made up to twice as loud.
 - v0.9 restyles the UI in the Sagaz UI system ("Graphite"), shared by all Sagaz plugins. Every control keeps its place and behaviour.
+- v0.10 moves the plugin name to its own title row at the top, makes the window taller, renames the company to Sagaz Audio, and underlines only the selected tab.
 
 ## How it works
 1. The plugin waits for a hit: the input jumps above the Threshold after silence.
@@ -129,16 +130,17 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Curve edits apply immediately, even mid-tail (speed edits from the next repeat).
 
 ## UI Layout
-- Fixed 860 × 460 px window, not resizable, laid out in px from the Sagaz UI system's OCDelay mockup.
-- Curve panel at the top (10, 10, 840 × 312): the top bar (Volume / Speed tabs; on the Speed tab Boost, End Rate, Max Speed and Pitch Follow; Snap at the far right), then the plot.
-- Bottom strip, spread evenly: Slice / Division (one shared knob slot), Rate / Rate Division (one shared slot), Length (six segmented buttons: 1 / 2 / 4 / 8 / 16 / 32, with a Stop button below them), Threshold, Mix, Width, a divider, the Sync, Free Rate, Overlap and Ping-Pong switches, a divider, then the plugin name ("OCDelay", "Sagaz").
+- Fixed 860 × 496 px window, not resizable, laid out in px from the Sagaz UI system's OCDelay mockup.
+- Title row at the top: the plugin name, right-aligned (an accent square, "OCDelay", "SAGAZ AUDIO"). Its left side is kept free for later additions such as presets.
+- Curve panel below the title row (10, 46, 840 × 312): the top bar (Volume / Speed tabs; on the Speed tab Boost, End Rate, Max Speed and Pitch Follow; Snap at the far right), then the plot.
+- Bottom strip, spread evenly: Slice / Division (one shared knob slot), Rate / Rate Division (one shared slot), Length (six segmented buttons: 1 / 2 / 4 / 8 / 16 / 32, with a Stop button below them), Threshold, Mix, Width, a divider, then the Sync, Free Rate, Overlap and Ping-Pong switches.
 - The Rate knob and the Overlap switch are greyed out and can't be changed while Free Rate is off.
 
 ## Visual Design (Sagaz UI system, Graphite)
 - One look for every Sagaz plugin: cool near-black levels, flat fills, 1 px hairlines, no shadows. Cyan accent (#4CB8E0) for selection, values and the volume curve; amber (#E6B450) for the speed curve.
 - The font is Inter (SIL Open Font License, `licenses/Inter-OFL.txt`), bundled in the plugin: Medium, SemiBold and Bold.
 - The tokens (colours, radii, strokes, control sizes) live in `source/ui/sagaz/SagazTheme.h`; all widget drawing goes through `SagazLookAndFeel`. Neither knows about OCDelay, so they can move to a shared module for the other plugins.
-- Components: 48 px knobs with a 270° arc and a value box below; checkbox switches; segmented buttons; tabs with an accent underline; slider bars with the value printed inside; a momentary action button that fills with accent while held.
+- Components: 48 px knobs with a 270° arc and a value box below; checkbox switches; segmented buttons; tabs with an accent underline on the selected one; slider bars with the value printed inside; a momentary action button that fills with accent while held.
 - Curve plot: bar / beat / 16th grid (16ths drop out below 5 px apart), bar numbers, axis labels on plates (100 % / 0 % on Volume, end / start rate on Speed), 1 × 9 px repeat ticks that merge into a band, a playhead with a cap. Points are hollow, fill on hover, and show a readout while dragged (volume %, or repeat speed vs the start rate on Speed, plus the bar position).
 
 ## Out of Scope (for now)

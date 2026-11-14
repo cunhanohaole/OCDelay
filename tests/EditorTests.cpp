@@ -53,7 +53,9 @@ TEST_CASE ("Editor controls sit in the bottom strip, inside the window", "[edito
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* editor = plugin.getActiveEditor();
         const auto bounds = editor->getLocalBounds();
-        const auto stripTop = bounds.getHeight() * 7 / 10;
+        auto* curveEditor = findChild<CurveEditor> (*editor);
+        REQUIRE (curveEditor != nullptr);
+        const auto stripTop = curveEditor->getBottom();
         const auto controls = getControls (*editor);
 
         // Slice, Division (hidden), Rate, Rate Division (hidden), Length, Stop, Threshold, Mix,
@@ -95,15 +97,15 @@ TEST_CASE ("Sync swaps the Slice knob for the Division knob", "[editor]")
     });
 }
 
-TEST_CASE ("Curve editor fills the area above the strip", "[editor]")
+TEST_CASE ("Curve editor fills the area between the title row and the strip", "[editor]")
 {
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* editor = plugin.getActiveEditor();
         auto* curveEditor = findChild<CurveEditor> (*editor);
         REQUIRE (curveEditor != nullptr);
 
-        const auto stripTop = editor->getHeight() * 7 / 10;
-        CHECK (curveEditor->getBottom() <= stripTop);
+        CHECK (curveEditor->getY() >= 40); // below the title row
+        CHECK (curveEditor->getBottom() <= editor->getHeight() * 3 / 4);
         CHECK (curveEditor->getHeight() > editor->getHeight() / 2);
         CHECK (curveEditor->getWidth() > editor->getWidth() * 9 / 10);
     });
@@ -282,5 +284,30 @@ TEST_CASE ("The Speed tab's controls stay in the top bar, in order, with Snap at
 
         for (auto* child : toolbar.getChildren())
             CHECK (toolbar.getLocalBounds().contains (child->getBounds()));
+    });
+}
+
+TEST_CASE ("Only the chosen tab is selected", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
+        REQUIRE (curveEditor != nullptr);
+        auto& toolbar = curveEditor->getToolbar();
+
+        juce::Array<juce::TextButton*> tabs;
+        for (auto* child : toolbar.getChildren())
+            if (auto* button = dynamic_cast<juce::TextButton*> (child))
+                tabs.add (button);
+        REQUIRE (tabs.size() == 2);
+
+        for (const auto chosen : { 1, 0, 0 }) // Speed, Volume, Volume again
+        {
+            tabs[chosen]->triggerClick();
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+
+            CHECK (tabs[chosen]->getToggleState());
+            CHECK_FALSE (tabs[1 - chosen]->getToggleState());
+            CHECK (toolbar.getTarget() == (chosen == 1 ? CurveTarget::speed : CurveTarget::volume));
+        }
     });
 }
