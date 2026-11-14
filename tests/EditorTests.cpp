@@ -1,18 +1,19 @@
 #include "helpers/test_helpers.h"
 #include <Parameters.h>
 #include <PluginEditor.h>
+#include <ui/sagaz/SagazLogo.h>
 #include <ui/sagaz/SagazLookAndFeel.h>
 #include <catch2/catch_test_macros.hpp>
 
 namespace
 {
-    // Strip controls, excluding the curve editor and the debug-only inspector button
+    // Strip controls, excluding the header logo, the curve editor and the debug-only inspector button
     juce::Array<juce::Component*> getControls (juce::Component& editor)
     {
         juce::Array<juce::Component*> controls;
 
         for (auto* child : editor.getChildren())
-            if (dynamic_cast<juce::TextButton*> (child) == nullptr && dynamic_cast<CurveEditor*> (child) == nullptr)
+            if (dynamic_cast<juce::TextButton*> (child) == nullptr && dynamic_cast<CurveEditor*> (child) == nullptr && dynamic_cast<SagazLogo*> (child) == nullptr)
                 controls.add (child);
 
         return controls;
@@ -97,14 +98,31 @@ TEST_CASE ("Sync swaps the Slice knob for the Division knob", "[editor]")
     });
 }
 
-TEST_CASE ("Curve editor fills the area between the title row and the strip", "[editor]")
+TEST_CASE ("Header shows the Sagaz logo at the top left, above the curve editor", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* editor = plugin.getActiveEditor();
+        auto* logo = findChild<SagazLogo> (*editor);
+        auto* curveEditor = findChild<CurveEditor> (*editor);
+        REQUIRE (logo != nullptr);
+        REQUIRE (curveEditor != nullptr);
+
+        CHECK (logo->isVisible());
+        CHECK (logo->getHeight() == 17);
+        CHECK (logo->getWidth() == SagazLogo::getWidthForHeight (17));
+        CHECK (logo->getX() < editor->getWidth() / 4);
+        CHECK (logo->getBottom() <= curveEditor->getY());
+    });
+}
+
+TEST_CASE ("Curve editor fills the area between the header and the strip", "[editor]")
 {
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* editor = plugin.getActiveEditor();
         auto* curveEditor = findChild<CurveEditor> (*editor);
         REQUIRE (curveEditor != nullptr);
 
-        CHECK (curveEditor->getY() >= 40); // below the title row
+        CHECK (curveEditor->getY() >= 34); // below the header
         CHECK (curveEditor->getBottom() <= editor->getHeight() * 3 / 4);
         CHECK (curveEditor->getHeight() > editor->getHeight() / 2);
         CHECK (curveEditor->getWidth() > editor->getWidth() * 9 / 10);

@@ -6,14 +6,17 @@ namespace
 {
     namespace Metrics = SagazTheme::Metrics;
 
-    // Window layout (px). The title row has room on its left for more (e.g. presets) later.
-    const juce::Rectangle<int> kTitleRow { 18, 10, 824, 28 };
-    const juce::Rectangle<int> kCurvePanel { 10, 46, 840, 312 };
-    const juce::Rectangle<int> kControlStrip { 22, 378, 816, 92 };
+    // Window layout (px), from the Sagaz UI system's OCDelay mockup
+    const juce::Rectangle<int> kHeader { 14, 4, 832, 30 };
+    const juce::Rectangle<int> kCurvePanel { 10, 40, 840, 312 };
+    const juce::Rectangle<int> kControlStrip { 22, 372, 816, 92 };
     constexpr int kLengthColumnWidth = 166;
     constexpr int kSwitchColumnWidth = 96;
-    constexpr int kLogoSize = 8;
-    constexpr int kTitleGap = 8;
+
+    // Header: Sagaz logo | divider | plugin name ... version
+    constexpr int kLogoHeight = 17;
+    constexpr int kHeaderGap = 14;
+    constexpr int kHeaderDividerHeight = 14;
     constexpr int kSwitchGap = 6;
     constexpr int kStopTop = 72; // in the Length column, below its buttons
 }
@@ -41,6 +44,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
 {
     setLookAndFeel (&lookAndFeel);
 
+    addAndMakeVisible (logo);
     addAndMakeVisible (curveEditor);
     addAndMakeVisible (delayTimeKnob);
     addChildComponent (divisionKnob);
@@ -80,37 +84,29 @@ void PluginEditor::paint (juce::Graphics& g)
     g.fillAll (SagazTheme::Colours::window);
 
     g.setColour (SagazTheme::Colours::border);
+    g.fillRect (headerDivider);
     g.fillRect (divider);
 
-    drawTitle (g);
+    drawHeaderText (g);
 }
 
-// Right-aligned on the title row: a small accent square, the plugin name, the company
-void PluginEditor::drawTitle (juce::Graphics& g) const
+// The plugin name after the logo's divider; the version at the far right
+void PluginEditor::drawHeaderText (juce::Graphics& g) const
 {
     const auto& fonts = lookAndFeel.getFonts();
-    const auto nameFont = fonts.get (SagazTextStyle::title);
-    const auto companyFont = fonts.get (SagazTextStyle::axis).withExtraKerningFactor (0.18f);
-    const juce::String name ("OCDelay");
-    const juce::String company ("SAGAZ AUDIO");
-
-    auto row = kTitleRow;
-    g.setColour (SagazTheme::Colours::textSecondary);
-    g.setFont (companyFont);
-    g.drawText (company, row.removeFromRight (juce::GlyphArrangement::getStringWidthInt (companyFont, company) + 2), juce::Justification::centredRight, false);
-    row.removeFromRight (kTitleGap);
 
     g.setColour (SagazTheme::Colours::textPrimary);
-    g.setFont (nameFont);
-    g.drawText (name, row.removeFromRight (juce::GlyphArrangement::getStringWidthInt (nameFont, name) + 2), juce::Justification::centredRight, false);
-    row.removeFromRight (kTitleGap);
+    g.setFont (fonts.get (SagazTextStyle::title));
+    g.drawText (JucePlugin_Name, headerText, juce::Justification::centredLeft, false);
 
-    g.setColour (SagazTheme::Colours::accent);
-    g.fillRoundedRectangle (row.removeFromRight (kLogoSize).withSizeKeepingCentre (kLogoSize, kLogoSize).toFloat(), SagazTheme::Radius::small);
+    g.setColour (SagazTheme::Colours::textSecondary);
+    g.setFont (fonts.get (SagazTextStyle::value));
+    g.drawText ("v" JucePlugin_VersionString, headerText, juce::Justification::centredRight, false);
 }
 
 void PluginEditor::resized()
 {
+    layoutHeader();
     curveEditor.setBounds (kCurvePanel);
     layoutControlStrip();
 
@@ -119,6 +115,18 @@ void PluginEditor::resized()
     const auto freeArea = curveEditor.getToolbar().getFreeArea() + curveEditor.getToolbar().getBounds().getPosition() + curveEditor.getPosition();
     inspectButton.setBounds (freeArea.withLeft (freeArea.getRight() - Metrics::buttonMinWidth).withSizeKeepingCentre (Metrics::buttonMinWidth, Metrics::buttonHeight));
 #endif
+}
+
+// Left to right, as in the Sagaz header: logo, divider, then the rest for the name and version
+void PluginEditor::layoutHeader()
+{
+    auto row = kHeader;
+    const auto logoWidth = SagazLogo::getWidthForHeight (kLogoHeight);
+    logo.setBounds (row.removeFromLeft (logoWidth).withSizeKeepingCentre (logoWidth, kLogoHeight));
+    row.removeFromLeft (kHeaderGap);
+    headerDivider = row.removeFromLeft (1).withSizeKeepingCentre (1, kHeaderDividerHeight);
+    row.removeFromLeft (kHeaderGap);
+    headerText = row;
 }
 
 // Left to right, spread evenly: Slice / Division, Rate / Rate Division, Length with Stop,
