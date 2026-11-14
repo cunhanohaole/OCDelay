@@ -97,6 +97,7 @@ private:
     std::atomic<float>* endRateDivision = nullptr;
     std::atomic<float>* maxSpeed = nullptr;
     std::atomic<float>* pitchFollow = nullptr;
+    std::atomic<float>* boostPercent = nullptr;
     std::atomic<float>* stopHeld = nullptr;
 
     // Audio thread only; keep the last values the host reported

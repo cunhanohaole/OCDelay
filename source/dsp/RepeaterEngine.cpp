@@ -30,6 +30,7 @@ void RepeaterEngine::prepare (double newSampleRate, int maxBlockSize, int numCha
     mix.reset (sampleRate, kParameterRampSeconds);
     pingPongAmount.reset (sampleRate, kParameterRampSeconds);
     pingPongWidth.reset (sampleRate, kParameterRampSeconds);
+    boost.reset (sampleRate, kParameterRampSeconds);
 
     reset();
 }
@@ -47,6 +48,7 @@ void RepeaterEngine::reset()
     mix.setCurrentAndTargetValue (mix.getTargetValue());
     pingPongAmount.setCurrentAndTargetValue (pingPongAmount.getTargetValue());
     pingPongWidth.setCurrentAndTargetValue (pingPongWidth.getTargetValue());
+    boost.setCurrentAndTargetValue (boost.getTargetValue());
     playheadPosition.store (-1.0f, std::memory_order_relaxed);
 }
 
@@ -106,6 +108,11 @@ void RepeaterEngine::setPitchFollow (bool shouldFollow)
     pitchFollow = shouldFollow;
 }
 
+void RepeaterEngine::setBoost (float newBoost)
+{
+    boost.setTargetValue (juce::jlimit (0.0f, 1.0f, newBoost));
+}
+
 void RepeaterEngine::process (juce::AudioBuffer<float>& buffer, std::span<const float> volumeTable, std::span<const float> speedTable)
 {
     jassert (sampleRate > 0.0); // prepare() must be called first
@@ -132,6 +139,7 @@ void RepeaterEngine::processFrame (juce::AudioBuffer<float>& buffer, int index, 
 
     context.pingPongAmount = pingPongAmount.getNextValue();
     context.pingPongWidth = pingPongWidth.getNextValue();
+    context.boostAmount = boost.getNextValue();
 
     StereoFrame wet {};
     for (auto& voice : voices)

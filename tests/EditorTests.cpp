@@ -189,7 +189,7 @@ TEST_CASE ("Rate and Overlap are enabled only with Free Rate on", "[editor]")
     });
 }
 
-TEST_CASE ("Speed controls show on the Speed tab, and Max Speed greys out End Rate", "[editor]")
+TEST_CASE ("Speed controls and Boost show on the Speed tab, and Max Speed greys out End Rate", "[editor]")
 {
     runWithinPluginEditor ([] (PluginProcessor& plugin) {
         auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
@@ -210,10 +210,13 @@ TEST_CASE ("Speed controls show on the Speed tab, and Max Speed greys out End Ra
         REQUIRE (findToolbarChild ("Pitch Follow") != nullptr);
         CHECK_FALSE (findToolbarChild ("Pitch Follow")->isVisible());
         CHECK (findToolbarChild ("End Rate") == nullptr);
+        CHECK (findToolbarChild ("Boost") == nullptr);
 
         toolbar.setTarget (CurveTarget::speed);
         CHECK (findToolbarChild ("Pitch Follow")->isVisible());
         CHECK (findToolbarChild ("Max Speed")->isVisible());
+        REQUIRE (findToolbarChild ("Boost") != nullptr);
+        CHECK (findToolbarChild ("Boost")->isEnabled());
         REQUIRE (findToolbarChild ("End Rate") != nullptr);
         CHECK_FALSE (findToolbarChild ("End Rate")->isEnabled()); // Max Speed is on by default
 

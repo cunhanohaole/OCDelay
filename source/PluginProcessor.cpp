@@ -45,12 +45,14 @@ PluginProcessor::PluginProcessor()
     maxSpeed = apvts.getRawParameterValue (ParamIDs::maxSpeed.getParamID());
     pitchFollow = apvts.getRawParameterValue (ParamIDs::pitchFollow.getParamID());
     stopHeld = apvts.getRawParameterValue (ParamIDs::stop.getParamID());
+    boostPercent = apvts.getRawParameterValue (ParamIDs::boost.getParamID());
 
     jassert (delayTimeMs != nullptr && mixPercent != nullptr
              && pingPong != nullptr && sync != nullptr && division != nullptr
              && length != nullptr && threshold != nullptr && pingPongWidth != nullptr
              && freeRate != nullptr && rateMs != nullptr && rateDivision != nullptr && rateOverlap != nullptr
-             && endRateMs != nullptr && endRateDivision != nullptr && maxSpeed != nullptr && pitchFollow != nullptr && stopHeld != nullptr);
+             && endRateMs != nullptr && endRateDivision != nullptr && maxSpeed != nullptr && pitchFollow != nullptr && stopHeld != nullptr
+             && boostPercent != nullptr);
 }
 
 PluginProcessor::~PluginProcessor() = default;
@@ -172,6 +174,7 @@ void PluginProcessor::pushParametersToEngine()
     effectiveEndIntervalMs.store (endIntervalMs);
     repeaterEngine.setEndIntervalSamples (endIntervalMs * currentSampleRate / 1000.0);
     repeaterEngine.setPitchFollow (pitchFollow->load() >= 0.5f);
+    repeaterEngine.setBoost (boostPercent->load() / 100.0f);
 }
 
 // Stop is momentary: only the press stops the repeats, so holding it doesn't keep silencing new hits

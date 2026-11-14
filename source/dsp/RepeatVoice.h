@@ -34,6 +34,7 @@ public:
         bool pitchFollow = false; // repeats play faster or slower in proportion to their interval
         float pingPongAmount = 0.0f;
         float pingPongWidth = 1.0f;
+        float boostAmount = 0.0f; // extra gain at the top of the speed curve: 1 = twice as loud
     };
 
     void prepare (int numChannels, int maxSliceSamples, int maxEdgeFadeSamples, int restartFadeSamples);
@@ -72,6 +73,7 @@ private:
     StereoFrame renderHead (const Head& head, const Context& context) const;
     StereoFrame pan (float left, float right, int repeatIndex, const Context& context) const;
     float sharedGain (const Context& context) const;
+    float boostGain (double normalisedTime, const Context& context) const;
     void advance();
 
     float readInterpolated (int channel, double position) const;

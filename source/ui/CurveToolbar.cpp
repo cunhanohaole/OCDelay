@@ -18,6 +18,7 @@ CurveToolbar::CurveToolbar (juce::AudioProcessorValueTreeState& apvts)
       endDivisionAttachment (apvts, ParamIDs::endRateDivision.getParamID(), endDivisionSlider),
       maxSpeedAttachment (apvts, ParamIDs::maxSpeed.getParamID(), maxSpeedButton),
       pitchFollowAttachment (apvts, ParamIDs::pitchFollow.getParamID(), pitchFollowButton),
+      boostAttachment (apvts, ParamIDs::boost.getParamID(), boostSlider),
       syncAttachment (getParameter (apvts, ParamIDs::sync), [this] (float value) {
           syncOn = value >= 0.5f;
           updateSpeedControls();
@@ -57,8 +58,12 @@ void CurveToolbar::setUpSpeedControls()
     endDivisionSlider.setTitle ("End Rate");
     maxSpeedButton.setTooltip ("The top of the speed curve is the fastest rate: repeats blur into a buzz");
     pitchFollowButton.setTooltip ("Repeats play faster as they speed up, like tape, so the pitch rises with the speed");
+    boostLabel.setText ("Boost", juce::dontSendNotification);
+    boostLabel.setJustificationType (juce::Justification::centredRight);
+    boostSlider.setTitle ("Boost");
+    boostSlider.setTooltip ("Makes the fast part louder, rising with the speed curve: 100% = twice as loud at the top");
 
-    for (auto* component : std::initializer_list<juce::Component*> { &endRateLabel, &endRateSlider, &endDivisionSlider, &maxSpeedButton, &pitchFollowButton })
+    for (auto* component : std::initializer_list<juce::Component*> { &boostLabel, &boostSlider, &endRateLabel, &endRateSlider, &endDivisionSlider, &maxSpeedButton, &pitchFollowButton })
         addChildComponent (component);
 }
 
@@ -81,6 +86,8 @@ void CurveToolbar::updateSpeedControls()
     endRateLabel.setVisible (showSpeed);
     maxSpeedButton.setVisible (showSpeed);
     pitchFollowButton.setVisible (showSpeed);
+    boostLabel.setVisible (showSpeed);
+    boostSlider.setVisible (showSpeed);
     endRateSlider.setVisible (showSpeed && ! syncOn);
     endDivisionSlider.setVisible (showSpeed && syncOn);
 
@@ -96,18 +103,22 @@ void CurveToolbar::resized()
     volumeTab.setBounds (tabs.removeFromLeft (tabs.getWidth() / 2));
     speedTab.setBounds (tabs);
 
+    // Leaves room after the tabs for the debug build's Inspect button
     snapButton.setBounds (area.removeFromRight (proportionOfWidth (0.1f)));
-    layoutSpeedControls (area.removeFromRight (proportionOfWidth (0.52f)));
+    layoutSpeedControls (area.removeFromRight (proportionOfWidth (0.565f)));
 }
 
-// "End", the End Rate bar, Max Speed and Pitch Follow, right-aligned next to Snap
+// "Boost" and its bar, "End" and the End Rate bar, Max Speed and Pitch Follow, right-aligned next to Snap
 void CurveToolbar::layoutSpeedControls (juce::Rectangle<int> area)
 {
-    pitchFollowButton.setBounds (area.removeFromRight (proportionOfWidth (0.15f)));
-    maxSpeedButton.setBounds (area.removeFromRight (proportionOfWidth (0.14f)));
+    pitchFollowButton.setBounds (area.removeFromRight (proportionOfWidth (0.14f)));
+    maxSpeedButton.setBounds (area.removeFromRight (proportionOfWidth (0.13f)));
 
-    const auto sliderArea = area.removeFromRight (proportionOfWidth (0.16f)).reduced (2, 4);
+    const auto sliderArea = area.removeFromRight (proportionOfWidth (0.12f)).reduced (2, 4);
     endRateSlider.setBounds (sliderArea);
     endDivisionSlider.setBounds (sliderArea);
-    endRateLabel.setBounds (area);
+    endRateLabel.setBounds (area.removeFromRight (proportionOfWidth (0.04f)));
+
+    boostSlider.setBounds (area.removeFromRight (proportionOfWidth (0.08f)).reduced (2, 4));
+    boostLabel.setBounds (area);
 }

@@ -25,6 +25,7 @@ namespace ParamIDs
     inline const juce::ParameterID maxSpeed { "maxSpeed", 5 };
     inline const juce::ParameterID pitchFollow { "pitchFollow", 5 };
     inline const juce::ParameterID stop { "stop", 6 };
+    inline const juce::ParameterID boost { "boost", 7 };
 }
 
 namespace ParamRanges
@@ -58,6 +59,9 @@ namespace ParamRanges
     inline constexpr int endRateDefaultDivisionIndex = 2; // 1/32
     inline constexpr bool maxSpeedDefault = true;
     inline constexpr bool pitchFollowDefault = false;
+
+    // Extra loudness following the speed curve: 100% = twice as loud at the curve's top
+    inline constexpr float boostDefaultPercent = 0.0f;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

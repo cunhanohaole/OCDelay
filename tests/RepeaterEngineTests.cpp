@@ -27,6 +27,7 @@ namespace
         bool overlap = false;
         double endIntervalSamples = 0.0; // top of the speed curve; 0 = no speed change
         bool pitchFollow = false;
+        float boost = 0.0f;
         int numChannels = 2;
     };
 
@@ -45,6 +46,7 @@ namespace
         engine->setPingPongWidth (settings.pingPongWidth);
         engine->setEndIntervalSamples (settings.endIntervalSamples);
         engine->setPitchFollow (settings.pitchFollow);
+        engine->setBoost (settings.boost);
         engine->setIntervalSamples (settings.intervalSamples);
         engine->setOverlap (settings.overlap);
         engine->prepare (kSampleRate, kBlockSize, settings.numChannels, kMaxSliceSeconds);
@@ -622,4 +624,31 @@ TEST_CASE ("Stop fades the repeats out, and the next hit starts a new tail", "[R
 
     // The second hit repeats as normal
     CHECK_THAT (buffer.getSample (0, secondHit + kSlice + kSlice / 2), WithinAbs (0.5, 1.0e-3));
+}
+
+TEST_CASE ("Boost makes repeats louder in proportion to the speed curve", "[RepeaterEngine]")
+{
+    const auto [boost, speedValue] = GENERATE (table<float, float> ({ { 1.0f, 1.0f }, { 1.0f, 0.5f }, { 0.5f, 1.0f }, { 0.0f, 1.0f }, { 1.0f, 0.0f } }));
+    CAPTURE (boost, speedValue);
+
+    // End interval = the slice, so the repeats keep their timing and only the gain changes
+    auto engine = makeEngine ({ .endIntervalSamples = kSlice, .boost = boost });
+    auto buffer = makeImpulse (2, repeatSample (4));
+
+    processInBlocks (*engine, buffer, flatCurve, makeFlatSpeed (speedValue));
+
+    for (int k = 1; k <= 3; ++k)
+        for (int channel = 0; channel < 2; ++channel)
+            CHECK_THAT (buffer.getSample (channel, repeatSample (k)), WithinAbs (1.0 + boost * speedValue, 1.0e-5));
+}
+
+TEST_CASE ("Boost does nothing without a speed change", "[RepeaterEngine]")
+{
+    auto engine = makeEngine ({ .boost = 1.0f }); // no end interval: the speed curve is off
+    auto buffer = makeImpulse (2, repeatSample (3));
+
+    processInBlocks (*engine, buffer, flatCurve, makeFlatSpeed (1.0f));
+
+    CHECK_THAT (buffer.getSample (0, repeatSample (1)), WithinAbs (1.0, 1.0e-6));
+    CHECK_THAT (buffer.getSample (0, repeatSample (2)), WithinAbs (1.0, 1.0e-6));
 }

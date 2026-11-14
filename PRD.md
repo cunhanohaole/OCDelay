@@ -1,4 +1,4 @@
-# PRD: OCDelay v0.7 — Repeater with speed curve, free rate and Stop
+# PRD: OCDelay v0.8 — Repeater with speed curve, free rate, Stop and Boost
 
 ## Goal
 OCDelay repeats a single-shot sound for an exact number of bars, then stops dead at the end. Drawn curves shape the volume and the repeat speed across that time, so a single hit can turn into a riser. It's built for one-off hits and phrases, not continuous audio (the name is a deliberate OCD joke about precise control).
@@ -10,6 +10,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - v0.5 replaced the pitch curve with a speed curve: the time between repeats moves from the start rate towards an end rate, optionally with the pitch following it like tape.
 - v0.6 added a Stop button that kills the repeats.
 - v0.7 changes the defaults (Sync and Ping-Pong on, 4 bars, 1/8D, Max Speed on, a flat volume curve) and stops the repeats when the host's transport stops.
+- v0.8 adds Boost: the fast part of a speed-curve riser can be made up to twice as loud.
 
 ## How it works
 1. The plugin waits for a hit: the input jumps above the Threshold after silence.
@@ -38,6 +39,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 | End Rate Division | choice | 1/64 … 1/1    | 1/32      | note | Repeat interval at the top of the speed curve when Sync is on (the same 17 steps as Division) |
 | Max Speed   | bool   | off / on            | on        | —    | On: the top of the speed curve is the fastest rate (Max interval, audio rate) instead of End Rate |
 | Pitch Follow| bool   | off / on            | off       | —    | Off: repeats keep the original pitch. On: each repeat plays faster or slower in proportion to its interval, like tape |
+| Boost       | float  | 0 – 100             | 0         | %    | Extra loudness that rises with the speed curve (see Boost). 0 = none, 100 = twice as loud (+6 dB) at the top of the curve |
 | Stop        | bool   | off / on            | off       | —    | Momentary: on while the Stop button is held. Switching it on stops the repeats (see Triggering). Automatable, so a DAW can stop a tail at a set point |
 | Volume curve| state  | —                   | flat at 100 % | — | Volume envelope over Length. Saved with the session; not automatable |
 | Speed curve | state  | —                   | flat at bottom | — | Repeat speed over Length. Bottom = start rate, top = End Rate (or Max). Saved with the session; not automatable |
@@ -55,7 +57,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Stop kills the current repeats: they fade out over 3 ms, the same as a restart, and nothing new is captured. The next hit starts a new tail as usual.
 - Stopping the host's transport (e.g. Space in the DAW) does the same as Stop. Only the moment playback stops counts: hits played live while the transport is stopped still repeat.
 - Capture includes 5 ms of audio from before the hit was detected (a rolling pre-roll buffer), so attacks aren't cut off.
-- Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit. End Rate, Max Speed and Pitch Follow are read as each repeat starts.
+- Slice, Rate, Free Rate, Overlap, Length and Sync are fixed for a tail when it is triggered; changes apply from the next hit. End Rate, Max Speed and Pitch Follow are read as each repeat starts. Boost is smoothed and applies immediately.
 
 ## Playback
 - Each repeat gets a 3 ms fade-in and fade-out at its edges so slice boundaries never click.
@@ -103,6 +105,12 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - The original slice (the dry hit) is never repitched.
 - Fractional read positions are interpolated (cubic). Anti-aliasing for large upward shifts is out of scope for now.
 
+### Boost
+- Makes the fast part louder, to make up for the loudness short repeats lose to their fades and to the sound's own attack.
+- Wet gain = 1 + Boost × the speed curve's height at that moment: none at the bottom (the start rate), the full amount at the top. It glides with the curve, so there are no steps.
+- It multiplies with the volume curve. With a flat speed curve at the bottom (the default) it does nothing.
+- Up to +6 dB can take the output over 0 dBFS; there is no limiter.
+
 ## Curve Editor
 - Fills the area above the control strip. Two tabs at the top-left switch between the **Volume** and **Speed** curves; both use the same editing gestures.
 - The x-axis spans the full Length in bars, with beat grid lines.
@@ -110,7 +118,7 @@ OCDelay repeats a single-shot sound for an exact number of bars, then stops dead
 - Speed tab: y-axis is the repeat interval, labelled with the start rate at the bottom and the end rate (or "Max") at the top.
   - Default curve: flat at the bottom (no speed change).
   - Changing the start or end rate doesn't move the curve's points; it changes what they mean.
-  - The End Rate control and the Max Speed and Pitch Follow switches sit in the curve area's top bar, visible only on the Speed tab. End Rate is greyed out while Max Speed is on.
+  - The Boost and End Rate controls and the Max Speed and Pitch Follow switches sit in the curve area's top bar, visible only on the Speed tab. End Rate is greyed out while Max Speed is on.
 - Drag points to move them. Double-click empty space to add a point. Right-click a point to delete it.
 - The first and last points stay at the start and end and move only vertically.
 - Drag a segment up or down to bend it (curvature).
