@@ -10,6 +10,7 @@ public:
     explicit LengthSelector (juce::RangedAudioParameter& lengthParameter);
 
     void resized() override;
+    void paintOverChildren (juce::Graphics&) override;
 
     int getSelectedIndex() const;
 
@@ -18,6 +19,7 @@ private:
 
     juce::Label label;
     juce::OwnedArray<juce::TextButton> buttons;
+    juce::Rectangle<int> groupBounds;
     juce::ParameterAttachment attachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LengthSelector)

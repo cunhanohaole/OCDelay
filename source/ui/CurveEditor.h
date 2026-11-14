@@ -19,6 +19,7 @@ public:
     void resized() override;
 
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
@@ -45,13 +46,20 @@ private:
     void bendSegment (float mouseY);
 
     // Drawing
+    void drawFrames (juce::Graphics&) const;
     void drawGrid (juce::Graphics&) const;
-    void drawSpeedLabels (juce::Graphics&) const;
+    void drawBarNumbers (juce::Graphics&, float clearOfX) const;
+    float drawAxisLabels (juce::Graphics&) const; // returns the labels' right edge
+    float drawAxisLabel (juce::Graphics&, const juce::String& text, float baselineY) const;
     void drawRepeatMark (juce::Graphics&, float screenX, float previousScreenX) const;
     void drawRepeatMarkers (juce::Graphics&) const;
     void drawCurve (juce::Graphics&) const;
     void drawPoints (juce::Graphics&) const;
+    void drawPoint (juce::Graphics&, juce::Point<float> centre, int index) const;
+    void drawDragReadout (juce::Graphics&) const;
     void drawPlayhead (juce::Graphics&) const;
+    juce::Colour getCurveColour() const;
+    juce::String getReadoutText (const CurvePoint& point) const;
 
     float getTotalBeats() const;
     float getIntervalFraction (float intervalMs) const; // an interval as a fraction of Length
@@ -66,9 +74,12 @@ private:
     int shownCurveVersion = -1;
 
     CurveToolbar toolbar;
+    juce::Rectangle<float> plotFrame; // the inset box around the plot
     juce::Rectangle<float> plotArea;
+    juce::SharedResourcePointer<SagazFonts> fonts;
 
     int draggedPoint = -1;
+    int hoveredPoint = -1;
     int bentSegment = -1;
     float bendStartCurvature = 0.0f;
     float bendStartY = 0.0f;
