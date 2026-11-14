@@ -51,7 +51,11 @@ void CurveToolbar::setUpTab (juce::TextButton& tab, CurveTarget tabTarget, int c
     tab.setRadioGroupId (kTabRadioGroupId);
     tab.setClickingTogglesState (true);
     tab.setConnectedEdges (connectedEdges);
-    tab.onClick = [this, tabTarget] { setTarget (tabTarget); };
+    // The radio group also "clicks" the tab it switches off; only the one switched on counts
+    tab.onClick = [this, &tab, tabTarget] {
+        if (tab.getToggleState())
+            setTarget (tabTarget);
+    };
     SagazLookAndFeel::setButtonStyle (tab, SagazLookAndFeel::ButtonStyle::tab);
     addAndMakeVisible (tab);
 }

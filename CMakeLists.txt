@@ -32,7 +32,7 @@ set(PROJECT_NAME "OCDelay")
 set(PRODUCT_NAME "OCDelay")
 
 # Change me! Used for the MacOS bundle name and Installers
-set(COMPANY_NAME "Sagaz")
+set(COMPANY_NAME "Sagaz Audio")
 
 # Change me! Used for the MacOS bundle identifier (and signing)
 set(BUNDLE_ID "com.sagaz.ocdelay")
