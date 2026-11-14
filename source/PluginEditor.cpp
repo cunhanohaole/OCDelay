@@ -1,10 +1,19 @@
 #include "PluginEditor.h"
 #include "Parameters.h"
+#include "ui/sagaz/SagazTheme.h"
 
 namespace
 {
-    constexpr float kControlStripHeight = 0.3f; // fraction of the window height
-    constexpr float kSwitchHeight = 0.058f;
+    namespace Metrics = SagazTheme::Metrics;
+
+    // Window layout (px)
+    const juce::Rectangle<int> kCurvePanel { 10, 10, 840, 312 };
+    const juce::Rectangle<int> kControlStrip { 22, 342, 816, 92 };
+    constexpr int kLengthColumnWidth = 166;
+    constexpr int kSwitchColumnWidth = 96;
+    constexpr int kLogoColumnWidth = 66;
+    constexpr int kSwitchGap = 6;
+    constexpr int kStopTop = 72; // in the Length column, below its buttons
 }
 
 PluginEditor::PluginEditor (PluginProcessor& p)
@@ -66,68 +75,99 @@ PluginEditor::~PluginEditor()
 
 void PluginEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    g.fillAll (SagazTheme::Colours::window);
+
+    g.setColour (SagazTheme::Colours::border);
+    for (const auto& divider : dividers)
+        g.fillRect (divider);
+
+    drawLogo (g);
+}
+
+// A small accent square, the plugin name and the company, stacked and centred
+void PluginEditor::drawLogo (juce::Graphics& g) const
+{
+    const auto& fonts = lookAndFeel.getFonts();
+    auto area = logoArea.withSizeKeepingCentre (logoArea.getWidth(), 44);
+
+    g.setColour (SagazTheme::Colours::accent);
+    g.fillRoundedRectangle (area.removeFromTop (8).withWidth (8).toFloat(), SagazTheme::Radius::small);
+    area.removeFromTop (4);
+
+    g.setColour (SagazTheme::Colours::textPrimary);
+    g.setFont (fonts.get (SagazTextStyle::title));
+    g.drawText ("OCDelay", area.removeFromTop (17), juce::Justification::centredLeft, false);
+    area.removeFromTop (4);
+
+    g.setColour (SagazTheme::Colours::textSecondary);
+    g.setFont (fonts.get (SagazTextStyle::axis).withExtraKerningFactor (0.18f));
+    g.drawText ("SAGAZ", area, juce::Justification::centredLeft, false);
 }
 
 void PluginEditor::resized()
 {
-    auto area = getLocalBounds();
-    const auto strip = area.removeFromBottom (proportionOfHeight (kControlStripHeight));
-
-    layoutControlStrip (strip.reduced (proportionOfWidth (0.02f), proportionOfHeight (0.02f)));
-    curveEditor.setBounds (area.reduced (proportionOfWidth (0.02f), proportionOfHeight (0.02f)));
+    curveEditor.setBounds (kCurvePanel);
+    layoutControlStrip();
 
 #if JUCE_DEBUG
-    // In the curve editor's top bar, just right of the Volume / Speed tabs
-    inspectButton.setBounds (curveEditor.getBounds()
-                                 .removeFromTop (curveEditor.proportionOfHeight (0.12f))
-                                 .withTrimmedLeft (curveEditor.proportionOfWidth (CurveToolbar::kTabsWidth + 0.01f))
-                                 .withWidth (proportionOfWidth (0.1f))
-                                 .reduced (2));
+    // At the right of the curve editor's top bar, before Snap
+    const auto freeArea = curveEditor.getToolbar().getFreeArea() + curveEditor.getToolbar().getBounds().getPosition() + curveEditor.getPosition();
+    inspectButton.setBounds (freeArea.withLeft (freeArea.getRight() - Metrics::buttonMinWidth).withSizeKeepingCentre (Metrics::buttonMinWidth, Metrics::buttonHeight));
 #endif
 }
 
-// Slice / Division, Rate / Rate Division, Length (wider, for six buttons), Threshold, Mix,
-// Width, switches
-void PluginEditor::layoutControlStrip (juce::Rectangle<int> strip)
+// Left to right, spread evenly: Slice / Division, Rate / Rate Division, Length with Stop,
+// Threshold, Mix, Width, a divider, the switches, a divider, the plugin name
+void PluginEditor::layoutControlStrip()
 {
-    const auto columnWidth = juce::roundToInt ((float) strip.getWidth() / 8.2f);
+    constexpr int knob = Metrics::knobCellWidth;
+    const std::array<int, 10> widths { knob, knob, kLengthColumnWidth, knob, knob, knob, 1, kSwitchColumnWidth, 1, kLogoColumnWidth };
 
-    const auto sliceColumn = strip.removeFromLeft (columnWidth);
-    delayTimeKnob.setBounds (sliceColumn);
-    divisionKnob.setBounds (sliceColumn);
+    auto usedWidth = 0;
+    for (const auto width : widths)
+        usedWidth += width;
+    const auto gap = (float) (kControlStrip.getWidth() - usedWidth) / (float) (widths.size() - 1);
 
-    const auto rateColumn = strip.removeFromLeft (columnWidth);
-    rateKnob.setBounds (rateColumn);
-    rateDivisionKnob.setBounds (rateColumn);
+    std::array<juce::Rectangle<int>, 10> columns;
+    auto x = (float) kControlStrip.getX();
+    for (size_t i = 0; i < widths.size(); ++i)
+    {
+        columns[i] = kControlStrip.withX (juce::roundToInt (x)).withWidth (widths[i]);
+        x += (float) widths[i] + gap;
+    }
 
-    layoutLengthColumn (strip.removeFromLeft (juce::roundToInt ((float) columnWidth * 1.8f)).reduced (proportionOfWidth (0.01f), 0));
-    thresholdKnob.setBounds (strip.removeFromLeft (columnWidth));
-    mixKnob.setBounds (strip.removeFromLeft (columnWidth));
-    widthKnob.setBounds (strip.removeFromLeft (columnWidth));
-
-    layoutSwitches (strip);
+    for (auto* knobPair : { &delayTimeKnob, &divisionKnob })
+        knobPair->setBounds (columns[0]);
+    for (auto* knobPair : { &rateKnob, &rateDivisionKnob })
+        knobPair->setBounds (columns[1]);
+    layoutLengthColumn (columns[2]);
+    thresholdKnob.setBounds (columns[3]);
+    mixKnob.setBounds (columns[4]);
+    widthKnob.setBounds (columns[5]);
+    dividers = { columns[6], columns[8] };
+    layoutSwitches (columns[7]);
+    logoArea = columns[9];
 }
 
-// Length keeps the whole column so its buttons line up with the knobs; Stop sits in the empty
-// band below them, level with the knobs' value boxes (and above the selector, so it gets the clicks)
+// Length's buttons line up with the knobs; Stop sits below them, level with the value boxes
+// (added after the selector, so it gets the clicks)
 void PluginEditor::layoutLengthColumn (juce::Rectangle<int> column)
 {
     lengthSelector.setBounds (column);
-
-    const auto stopRow = column.withTrimmedTop (column.proportionOfHeight (0.8f)).withTrimmedBottom (column.proportionOfHeight (0.03f));
-    stopButton.setBounds (stopRow.withSizeKeepingCentre (column.proportionOfWidth (0.36f), stopRow.getHeight()));
+    stopButton.setBounds (juce::Rectangle<int> (Metrics::buttonMinWidth, Metrics::buttonHeight).withCentre ({ column.getCentreX(), column.getY() + kStopTop + Metrics::buttonHeight / 2 }));
 }
 
 // Sync, Free Rate, Overlap, Ping-Pong stacked and centred in the column
 void PluginEditor::layoutSwitches (juce::Rectangle<int> column)
 {
-    const auto switchWidth = juce::jmin (column.getWidth(), proportionOfWidth (0.14f));
-    const auto switchHeight = proportionOfHeight (kSwitchHeight);
-    auto switches = column.withSizeKeepingCentre (switchWidth, 4 * switchHeight);
+    constexpr int rowHeight = Metrics::switchBox;
+    auto switches = column.withSizeKeepingCentre (column.getWidth(), 4 * rowHeight + 3 * kSwitchGap);
 
     for (auto* button : { &syncButton, &freeRateButton, &overlapButton, &pingPongButton })
-        button->setBounds (switches.removeFromTop (switchHeight));
+    {
+        button->setBounds (switches.removeFromTop (rowHeight));
+        switches.removeFromTop (kSwitchGap);
+    }
 }
 
 void PluginEditor::showDivisionKnobs (bool shouldShowDivisions)

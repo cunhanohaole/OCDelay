@@ -4,7 +4,7 @@
 A free VST3 repeater for single-shot sounds: it captures a slice after a hit and repeats it for an exact number of bars, with drawn volume and speed curves. The spec is in `PRD.md` — build only what it lists.
 
 ## Tech Stack
-- **Framework:** JUCE 9 (git submodule in `JUCE/`), native JUCE UI with the default look-and-feel
+- **Framework:** JUCE 9 (git submodule in `JUCE/`), native JUCE UI drawn by `SagazLookAndFeel` (the shared Sagaz UI system, "Graphite"; tokens in `source/ui/sagaz/SagazTheme.h`, Inter font bundled from `assets/fonts/`)
 - **Language:** C++23 (set by `pamplejuce_shared_code_defaults()`)
 - **Build:** CMake from the Pamplejuce template; CPM for non-JUCE libraries
 - **Format:** VST3 only. **Platforms:** macOS 11+ (universal arm64 + x86_64) and Windows

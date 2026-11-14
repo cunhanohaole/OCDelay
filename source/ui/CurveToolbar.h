@@ -1,19 +1,21 @@
 #pragma once
 
 #include "../curve/CurveSlot.h"
+#include "sagaz/SagazFonts.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
-// Top bar of the curve editor: Volume / Speed tabs, the Boost, End Rate, Max Speed and Pitch Follow
-// controls (shown on the Speed tab only) and the Snap toggle.
+// Top bar of the curve editor, left to right: Volume / Speed tabs, then on the Speed tab only
+// Boost, End Rate, Max Speed and Pitch Follow; Snap at the far right.
 class CurveToolbar : public juce::Component
 {
 public:
-    // Fraction of the width the tabs take at the left
-    static constexpr float kTabsWidth = 0.22f;
-
     explicit CurveToolbar (juce::AudioProcessorValueTreeState& apvts);
 
+    void paint (juce::Graphics&) override;
     void resized() override;
+
+    // The empty stretch between the speed controls and Snap (the same on both tabs)
+    juce::Rectangle<int> getFreeArea() const { return freeArea; }
 
     CurveTarget getTarget() const { return target; }
     void setTarget (CurveTarget newTarget);
@@ -25,11 +27,19 @@ private:
     void setUpTab (juce::TextButton& tab, CurveTarget tabTarget, int connectedEdges);
     void setUpSpeedControls();
     void updateSpeedControls();
-    void layoutSpeedControls (juce::Rectangle<int> area);
+    int layoutTabs (int left);
+    int layoutSpeedControls (int left);
+    int layoutSliderBar (juce::Label& label, std::initializer_list<juce::Slider*> sliders, int left);
+    int layoutSwitch (juce::ToggleButton& button, int left);
+    int textWidth (const juce::String& text, SagazTextStyle style) const;
 
     CurveTarget target = CurveTarget::volume;
     bool syncOn = false;
     bool maxSpeedOn = false;
+    juce::Rectangle<int> tabsFrame;
+    int separatorX = 0;
+    juce::Rectangle<int> freeArea;
+    juce::SharedResourcePointer<SagazFonts> fonts;
 
     juce::TextButton volumeTab { "Volume" };
     juce::TextButton speedTab { "Speed" };

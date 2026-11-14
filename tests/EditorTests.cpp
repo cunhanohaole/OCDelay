@@ -1,6 +1,7 @@
 #include "helpers/test_helpers.h"
 #include <Parameters.h>
 #include <PluginEditor.h>
+#include <ui/sagaz/SagazLookAndFeel.h>
 #include <catch2/catch_test_macros.hpp>
 
 namespace
@@ -238,5 +239,48 @@ TEST_CASE ("The Stop button holds the Stop parameter on while pressed", "[editor
 
         stopButton->getButton().setState (juce::Button::buttonNormal);
         CHECK (stop->load() < 0.5f);
+    });
+}
+
+TEST_CASE ("The editor uses the Sagaz look with the bundled Inter font", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* lookAndFeel = dynamic_cast<SagazLookAndFeel*> (&plugin.getActiveEditor()->getLookAndFeel());
+        REQUIRE (lookAndFeel != nullptr);
+
+        for (const auto style : { SagazTextStyle::label, SagazTextStyle::value, SagazTextStyle::title })
+            CHECK (lookAndFeel->getFonts().get (style).getTypefacePtr()->getName() == "Inter");
+    });
+}
+
+TEST_CASE ("The Speed tab's controls stay in the top bar, in order, with Snap at the far right", "[editor]")
+{
+    runWithinPluginEditor ([] (PluginProcessor& plugin) {
+        auto* curveEditor = findChild<CurveEditor> (*plugin.getActiveEditor());
+        REQUIRE (curveEditor != nullptr);
+        auto& toolbar = curveEditor->getToolbar();
+        toolbar.setTarget (CurveTarget::speed);
+
+        auto findLeft = [&toolbar] (const juce::String& name) {
+            for (auto* child : toolbar.getChildren())
+            {
+                const auto* slider = dynamic_cast<juce::Slider*> (child);
+                const auto* button = dynamic_cast<juce::Button*> (child);
+                if (child->isVisible() && ((slider != nullptr && slider->getTitle() == name) || (button != nullptr && button->getButtonText() == name)))
+                    return child->getX();
+            }
+            return -1;
+        };
+
+        const std::array names { "Speed", "Boost", "End Rate", "Max Speed", "Pitch Follow", "Snap" };
+        for (size_t i = 1; i < names.size(); ++i)
+        {
+            CAPTURE (names[i]);
+            REQUIRE (findLeft (names[i]) >= 0);
+            CHECK (findLeft (names[i]) > findLeft (names[i - 1]));
+        }
+
+        for (auto* child : toolbar.getChildren())
+            CHECK (toolbar.getLocalBounds().contains (child->getBounds()));
     });
 }

@@ -3,9 +3,9 @@
 #include "PluginProcessor.h"
 #include "ui/CurveEditor.h"
 #include "ui/LengthSelector.h"
-#include "ui/OCDelayLookAndFeel.h"
 #include "ui/ParameterKnob.h"
 #include "ui/StopButton.h"
+#include "ui/sagaz/SagazLookAndFeel.h"
 
 #if JUCE_DEBUG
     #include "melatonin_inspector/melatonin_inspector.h"
@@ -14,7 +14,7 @@
 class PluginEditor : public juce::AudioProcessorEditor
 {
 public:
-    // Fixed size for now. Layout is proportional, so resizing can be enabled later.
+    // Fixed size, laid out in px from the Sagaz UI system's OCDelay mockup
     static constexpr int kWidth = 860;
     static constexpr int kHeight = 460;
 
@@ -25,14 +25,15 @@ public:
     void resized() override;
 
 private:
-    void layoutControlStrip (juce::Rectangle<int> strip);
+    void layoutControlStrip();
     void layoutLengthColumn (juce::Rectangle<int> column);
     void layoutSwitches (juce::Rectangle<int> column);
+    void drawLogo (juce::Graphics&) const;
     void showDivisionKnobs (bool shouldShowDivisions);
     void enableRateControls (bool freeRateOn);
 
     // Declared first so it outlives every component that uses it
-    OCDelayLookAndFeel lookAndFeel;
+    SagazLookAndFeel lookAndFeel;
 
     CurveEditor curveEditor;
 
@@ -61,6 +62,10 @@ private:
     // Follow Sync and Free Rate from any source (button, automation, preset) on the message thread
     juce::ParameterAttachment syncVisibilityAttachment;
     juce::ParameterAttachment freeRateEnableAttachment;
+
+    // Painted, not components: the strip's two dividers and the plugin name
+    std::array<juce::Rectangle<int>, 2> dividers;
+    juce::Rectangle<int> logoArea;
 
 #if JUCE_DEBUG
     void setUpInspector();
